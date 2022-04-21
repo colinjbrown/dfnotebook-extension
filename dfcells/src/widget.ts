@@ -3,11 +3,13 @@
 | Distributed under the terms of the Modified BSD License.
 |----------------------------------------------------------------------------*/
 
+import { marked } from 'marked';
+
 import { AttachmentsResolver } from '@jupyterlab/attachments';
 
 import { ISessionContext } from '@jupyterlab/apputils';
 
-import { IChangedArgs, ActivityMonitor, URLExt } from '@jupyterlab/coreutils';
+import { ActivityMonitor, IChangedArgs, URLExt } from '@jupyterlab/coreutils';
 
 import { CodeEditor, CodeEditorWrapper } from '@jupyterlab/codeeditor';
 
@@ -15,7 +17,7 @@ import { DirListing } from '@jupyterlab/filebrowser';
 
 import * as nbformat from '@jupyterlab/nbformat';
 
-import { IObservableMap, IObservableJSON } from '@jupyterlab/observables';
+import { IObservableJSON, IObservableMap } from '@jupyterlab/observables';
 
 import {
   OutputArea,
@@ -33,34 +35,37 @@ import {
   imageRendererFactory
 } from '@jupyterlab/rendermime';
 
-import { KernelMessage, Kernel } from '@jupyterlab/services';
+import { Kernel, KernelMessage } from '@jupyterlab/services';
+
+import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 
 import {
-  JSONValue,
-  PromiseDelegate,
   JSONObject,
-  UUID,
-  PartialJSONValue
+  JSONValue,
+  PartialJSONValue,
+  PromiseDelegate,
+  UUID
 } from '@lumino/coreutils';
 
-import { some, filter, toArray } from '@lumino/algorithm';
+import { filter, some, toArray } from '@lumino/algorithm';
 
 import { IDragEvent } from '@lumino/dragdrop';
 
 import { Message } from '@lumino/messaging';
 
-import { PanelLayout, Panel, Widget } from '@lumino/widgets';
+import { Panel, PanelLayout, Widget } from '@lumino/widgets';
 
 import { InputCollapser, OutputCollapser } from './collapser';
 
 import {
-  CellHeader,
+
   CellFooter,
-  ICellHeader,
-  ICellFooter
+  CellHeader,
+  ICellFooter,
+  ICellHeader
 } from './headerfooter';
 
-import { InputArea, IInputPrompt, InputPrompt } from './inputarea';
+import { IInputPrompt, InputArea, InputPrompt } from './inputarea';
 
 import {
   IAttachmentsCellModel,
@@ -71,12 +76,13 @@ import {
 } from './model';
 
 import { InputPlaceholder, OutputPlaceholder } from './placeholder';
-import {IExecuteInputMsg} from "@jupyterlab/services/lib/kernel/messages";
+import {IExecuteInputMsg} from "@jupyterlab/services/lib/kernel/messages";import { ResizeHandle } from './resizeHandle';
 
-//import { Graph } from '@dfnotebook/dfgraph';
-//import { Graph } from '../../dfgraph'
+import { Signal } from '@lumino/signaling';
+import { addIcon } from '@jupyterlab/ui-components';
+
+
 import { DfGraph } from './dfgraph';
-//import * as DfGraph from './dfgraph';
 
 /**
  * The CSS class added to cell widgets.
@@ -129,6 +135,11 @@ const CELL_OUTPUT_COLLAPSER_CLASS = 'jp-Cell-outputCollapser';
 const READONLY_CLASS = 'jp-mod-readOnly';
 
 /**
+ * The class name added to the cell when dirty.
+ */
+const DIRTY_CLASS = 'jp-mod-dirty';
+
+/**
  * The class name added to code cells.
  */
 const CODE_CELL_CLASS = 'jp-CodeCell';
@@ -142,6 +153,12 @@ const MARKDOWN_CELL_CLASS = 'jp-MarkdownCell';
  * The class name added to rendered markdown output widgets.
  */
 const MARKDOWN_OUTPUT_CLASS = 'jp-MarkdownOutput';
+
+export const MARKDOWN_HEADING_COLLAPSED = 'jp-MarkdownHeadingCollapsed';
+
+const HEADING_COLLAPSER_CLASS = 'jp-collapseHeadingButton';
+
+const SHOW_HIDDEN_CELLS_CLASS = 'jp-showHiddenCellsButton';
 
 /**
  * The class name added to raw cells.
@@ -170,43 +187,45 @@ const RENDER_TIMEOUT = 1000;
  */
 const CONTENTS_MIME_RICH = 'application/x-jupyter-icontentsrich';
 
-/******************************************************************************
+/** ****************************************************************************
  * Cell
  ******************************************************************************/
 
 /**
  * A base cell widget.
  */
-export class Cell extends Widget {
+export class Cell<T extends ICellModel = ICellModel> extends Widget {
   /**
    * Construct a new base cell widget.
    */
-  //dfgraph: any;
-  
-  constructor(options: Cell.IOptions) {
+  constructor(options: Cell.IOptions<T>) {
     super();
     this.addClass(CELL_CLASS);
-    let model = (this._model = options.model);
-    let contentFactory = (this.contentFactory =
+    const model = (this._model = options.model);
+
+    const contentFactory = (this.contentFactory =
       options.contentFactory || Cell.defaultContentFactory);
     this.layout = new PanelLayout();
+    // Set up translator for aria labels
+    this.translator = options.translator || nullTranslator;
 
     //this.dfgraph = DfGraph;
     //this.dfgraph = new Graph();
     // Header
-    let header = contentFactory.createCellHeader();
+    const header = contentFactory.createCellHeader();
     header.addClass(CELL_HEADER_CLASS);
     (this.layout as PanelLayout).addWidget(header);
 
     // Input
-    let inputWrapper = (this._inputWrapper = new Panel());
+    const inputWrapper = (this._inputWrapper = new Panel());
     inputWrapper.addClass(CELL_INPUT_WRAPPER_CLASS);
-    let inputCollapser = new InputCollapser();
+    const inputCollapser = new InputCollapser();
     inputCollapser.addClass(CELL_INPUT_COLLAPSER_CLASS);
-    let input = (this._input = new InputArea({
+    const input = (this._input = new InputArea({
       model,
       contentFactory,
-      updateOnShow: options.updateEditorOnShow
+      updateOnShow: options.updateEditorOnShow,
+      placeholder: options.placeholder
     }));
     input.addClass(CELL_INPUT_AREA_CLASS);
     inputWrapper.addWidget(inputCollapser);
@@ -218,17 +237,13 @@ export class Cell extends Widget {
     });
 
     // Footer
-    let footer = this.contentFactory.createCellFooter();
+    const footer = this.contentFactory.createCellFooter();
     footer.addClass(CELL_FOOTER_CLASS);
     (this.layout as PanelLayout).addWidget(footer);
 
     // Editor settings
     if (options.editorConfig) {
-      Object.keys(options.editorConfig).forEach(
-        (key: keyof CodeEditor.IConfig) => {
-          this.editor.setOption(key, options.editorConfig?.[key] ?? null);
-        }
-      );
+      this.editor.setOptions({ ...options.editorConfig });
     }
 
     model.metadata.changed.connect(this.onMetadataChanged, this);
@@ -281,7 +296,7 @@ export class Cell extends Widget {
   /**
    * Get the model used by the cell.
    */
-  get model(): ICellModel {
+  get model(): T {
     return this._model;
   }
 
@@ -312,7 +327,7 @@ export class Cell extends Widget {
   /**
    * Save view editable state to model
    */
-  saveEditableState() {
+  saveEditableState(): void {
     const { metadata } = this.model;
     const current = metadata.get('editable');
 
@@ -333,7 +348,7 @@ export class Cell extends Widget {
   /**
    * Load view editable state from model.
    */
-  loadEditableState() {
+  loadEditableState(): void {
     this.readOnly = this.model.metadata.get('editable') === false;
   }
 
@@ -361,7 +376,7 @@ export class Cell extends Widget {
     if (this._inputHidden === value) {
       return;
     }
-    let layout = this._inputWrapper.layout as PanelLayout;
+    const layout = this._inputWrapper.layout as PanelLayout;
     if (value) {
       this._input.parent = null;
       layout.addWidget(this._inputPlaceholder);
@@ -379,7 +394,7 @@ export class Cell extends Widget {
   /**
    * Save view collapse state to model
    */
-  saveCollapseState() {
+  saveCollapseState(): void {
     const jupyter = { ...(this.model.metadata.get('jupyter') as any) };
 
     if (
@@ -404,7 +419,7 @@ export class Cell extends Widget {
   /**
    * Revert view collapse state from model.
    */
-  loadCollapseState() {
+  loadCollapseState(): void {
     const jupyter = (this.model.metadata.get('jupyter') as any) || {};
     this.inputHidden = !!jupyter.source_hidden;
   }
@@ -456,18 +471,20 @@ export class Cell extends Widget {
   /**
    * Clone the cell, using the same model.
    */
-  clone(): Cell {
-    let constructor = this.constructor as typeof Cell;
+  clone(): Cell<T> {
+    const constructor = this.constructor as typeof Cell;
     return new constructor({
       model: this.model,
-      contentFactory: this.contentFactory
+      contentFactory: this.contentFactory,
+      placeholder: false,
+      translator: this.translator
     });
   }
 
   /**
    * Dispose of the resources held by the widget.
    */
-  dispose() {
+  dispose(): void {
     // Do nothing if already disposed.
     if (this.isDisposed) {
       return;
@@ -538,8 +555,10 @@ export class Cell extends Widget {
     }
   }
 
+  // Used in clone() to instantiate a new instance of the current widget
+  protected translator: ITranslator;
   private _readOnly = false;
-  private _model: ICellModel;
+  private _model: T;
   private _inputHidden = false;
   private _input: InputArea;
   private _inputWrapper: Widget;
@@ -555,11 +574,11 @@ export namespace Cell {
   /**
    * An options object for initializing a cell widget.
    */
-  export interface IOptions {
+  export interface IOptions<T extends ICellModel> {
     /**
      * The model used by the cell.
      */
-    model: ICellModel;
+    model: T;
 
     /**
      * The factory object for customizable cell children.
@@ -575,6 +594,21 @@ export namespace Cell {
      * Whether to send an update request to the editor when it is shown.
      */
     updateEditorOnShow?: boolean;
+
+    /**
+     * The maximum number of output items to display in cell output.
+     */
+    maxNumberOutputs?: number;
+
+    /**
+     * Whether this cell is a placeholder for future rendering.
+     */
+    placeholder?: boolean;
+
+    /**
+     * The application language translator.
+     */
+    translator?: ITranslator;
   }
 
   /**
@@ -629,7 +663,7 @@ export namespace Cell {
     }
 
     /**
-     * Create a new cell header for the parent widget.
+     * Create a new cell footer for the parent widget.
      */
     createCellFooter(): ICellFooter {
       return new CellFooter();
@@ -683,61 +717,73 @@ export namespace Cell {
   export const defaultContentFactory = new ContentFactory();
 }
 
-/******************************************************************************
+/** ****************************************************************************
  * CodeCell
  ******************************************************************************/
 
 /**
  * A widget for a code cell.
  */
-export class CodeCell extends Cell {
+export class CodeCell extends Cell<ICodeCellModel> {
   /**
    * Construct a code cell widget.
    */
   constructor(options: CodeCell.IOptions) {
     super(options);
     this.addClass(CODE_CELL_CLASS);
+    const trans = this.translator.load('jupyterlab');
 
     // Only save options not handled by parent constructor.
-    let rendermime = (this._rendermime = options.rendermime);
-    let contentFactory = this.contentFactory;
-    let model = this.model;
+    const rendermime = (this._rendermime = options.rendermime);
+    const contentFactory = this.contentFactory;
+    const model = this.model;
 
-    // Insert the output before the cell footer.
-    let outputWrapper = (this._outputWrapper = new Panel());
-    outputWrapper.addClass(CELL_OUTPUT_WRAPPER_CLASS);
-    let outputCollapser = new OutputCollapser();
-    outputCollapser.addClass(CELL_OUTPUT_COLLAPSER_CLASS);
-    let output = (this._output = new OutputArea({
-      model: model.outputs,
-      rendermime,
-      contentFactory: contentFactory
-    }));
+    // Note that modifying the below label warrants one to also modify
+    // the same in this._outputLengthHandler. Ideally, this label must
+    // have been a constant and used in both places but it is not done
+    // so because of limitations in the translation manager.
+    let ariaLabel = trans.__('Code Cell Content with Output');
+
+    if (!options.placeholder) {
+      // Insert the output before the cell footer.
+      const outputWrapper = (this._outputWrapper = new Panel());
+      outputWrapper.addClass(CELL_OUTPUT_WRAPPER_CLASS);
+      const outputCollapser = new OutputCollapser();
+      outputCollapser.addClass(CELL_OUTPUT_COLLAPSER_CLASS);
+      const output = (this._output = new OutputArea({
+        model: model.outputs,
+        rendermime,
+        contentFactory: contentFactory,
+        maxNumberOutputs: options.maxNumberOutputs
+      }));
     // FIXME embed this in OutputArea
     output.cellId = model.id.replace(/-/g, '').substr(0, 8);
 
     output.addClass(CELL_OUTPUT_AREA_CLASS);
-    // Set a CSS if there are no outputs, and connect a signal for future
-    // changes to the number of outputs. This is for conditional styling
-    // if there are no outputs.
-    if (model.outputs.length === 0) {
-      this.addClass(NO_OUTPUTS_CLASS);
+// Set a CSS if there are no outputs, and connect a signal for future
+      // changes to the number of outputs. This is for conditional styling
+      // if there are no outputs.
+      if (model.outputs.length === 0) {
+        this.addClass(NO_OUTPUTS_CLASS);
+        ariaLabel = trans.__('Code Cell Content');
+      }
+      output.outputLengthChanged.connect(this._outputLengthHandler, this);
+      outputWrapper.addWidget(outputCollapser);
+      outputWrapper.addWidget(output);
+      (this.layout as PanelLayout).insertWidget(2, new ResizeHandle(this.node));
+      (this.layout as PanelLayout).insertWidget(3, outputWrapper);
+
+      if (model.isDirty) {
+        this.addClass(DIRTY_CLASS);
+      }
+
+      this._outputPlaceholder = new OutputPlaceholder(() => {
+        this.outputHidden = !this.outputHidden;
+      });
     }
-    output.outputLengthChanged.connect(this._outputLengthHandler, this);
-    outputWrapper.addWidget(outputCollapser);
-    outputWrapper.addWidget(output);
-    (this.layout as PanelLayout).insertWidget(2, outputWrapper);
-
-    this._outputPlaceholder = new OutputPlaceholder(() => {
-      this.outputHidden = !this.outputHidden;
-    });
     model.stateChanged.connect(this.onStateChanged, this);
+    this.node.setAttribute('aria-label', ariaLabel);
   }
-
-  /**
-   * The model used by the widget.
-   */
-  readonly model: ICodeCellModel;
 
   /**
    * Initialize view state from model.
@@ -772,7 +818,7 @@ export class CodeCell extends Cell {
     if (this._outputHidden === value) {
       return;
     }
-    let layout = this._outputWrapper.layout as PanelLayout;
+    const layout = this._outputWrapper.layout as PanelLayout;
     if (value) {
       layout.removeWidget(this._output);
       layout.addWidget(this._outputPlaceholder);
@@ -795,7 +841,7 @@ export class CodeCell extends Cell {
   /**
    * Save view collapse state to model
    */
-  saveCollapseState() {
+  saveCollapseState(): void {
     // Because collapse state for a code cell involves two different pieces of
     // metadata (the `collapsed` and `jupyter` metadata keys), we block reacting
     // to changes in metadata until we have fully committed our changes.
@@ -834,7 +880,7 @@ export class CodeCell extends Cell {
    * We consider the `collapsed` metadata key as the source of truth for outputs
    * being hidden.
    */
-  loadCollapseState() {
+  loadCollapseState(): void {
     super.loadCollapseState();
     this.outputHidden = !!this.model.metadata.get('collapsed');
   }
@@ -856,7 +902,7 @@ export class CodeCell extends Cell {
   /**
    * Save view collapse state to model
    */
-  saveScrolledState() {
+  saveScrolledState(): void {
     const { metadata } = this.model;
     const current = metadata.get('scrolled');
 
@@ -876,7 +922,7 @@ export class CodeCell extends Cell {
   /**
    * Revert view collapse state from model.
    */
-  loadScrolledState() {
+  loadScrolledState(): void {
     const metadata = this.model.metadata;
 
     // We don't have the notion of 'auto' scrolled, so we make it false.
@@ -923,11 +969,13 @@ export class CodeCell extends Cell {
    * Clone the cell, using the same model.
    */
   clone(): CodeCell {
-    let constructor = this.constructor as typeof CodeCell;
+    const constructor = this.constructor as typeof CodeCell;
     return new constructor({
       model: this.model,
       contentFactory: this.contentFactory,
-      rendermime: this._rendermime
+      rendermime: this._rendermime,
+      placeholder: false,
+      translator: this.translator
     });
   }
 
@@ -969,6 +1017,13 @@ export class CodeCell extends Cell {
         //this.setPrompt(`${(model as ICodeCellModel).executionCount || ''}`);
         // FIXME should this be a no-op?
         this.setPrompt(`${model.id.substr(0, 8) || ''}`);
+        break; 
+      case 'isDirty':
+        if ((model as ICodeCellModel).isDirty) {
+          this.addClass(DIRTY_CLASS);
+        } else {
+          this.removeClass(DIRTY_CLASS);
+        }
         break;
       default:
         break;
@@ -1007,8 +1062,13 @@ export class CodeCell extends Cell {
    * Handle changes in the number of outputs in the output area.
    */
   private _outputLengthHandler(sender: OutputArea, args: number) {
-    let force = args === 0 ? true : false;
+    const force = args === 0 ? true : false;
     this.toggleClass(NO_OUTPUTS_CLASS, force);
+    const trans = this.translator.load('jupyterlab');
+    const ariaLabel = force
+      ? trans.__('Code Cell Content')
+      : trans.__('Code Cell Content with Output');
+    this.node.setAttribute('aria-label', ariaLabel);
   }
 
   private _rendermime: IRenderMimeRegistry;
@@ -1028,12 +1088,7 @@ export namespace CodeCell {
   /**
    * An options object for initializing a base cell widget.
    */
-  export interface IOptions extends Cell.IOptions {
-    /**
-     * The model used by the cell.
-     */
-    model: ICodeCellModel;
-
+  export interface IOptions extends Cell.IOptions<ICodeCellModel> {
     /**
      * The mime renderer for the cell widget.
      */
@@ -1050,13 +1105,13 @@ export namespace CodeCell {
     dfData?: JSONObject,
     cellIdWidgetMap?: {[key:string]: CodeCell}
   ): Promise<KernelMessage.IExecuteReplyMsg | void> {
-    let model = cell.model;
-    let code = model.value.text;
+    const model = cell.model;
+    const code = model.value.text;
     if (!code.trim() || !sessionContext.session?.kernel) {
       model.clearExecution();
       return;
     }
-    let cellId = { cellId: model.id };
+    const cellId = { cellId: model.id };
     metadata = {
       ...model.metadata.toJSON(),
       ...metadata,
@@ -1098,10 +1153,9 @@ export namespace CodeCell {
             default:
               return true;
           }
-          const value = msg.header.date;
-          if (!value) {
-            return true;
-          }
+          // If the data is missing, estimate it to now
+          // Date was added in 5.1: https://jupyter-client.readthedocs.io/en/stable/messaging.html#message-header
+          const value = msg.header.date || new Date().toISOString();
           const timingInfo: any = Object.assign(
             {},
             model.metadata.get('execution')
@@ -1161,19 +1215,21 @@ export namespace CodeCell {
                     DfGraph.update_down_links(content.update_downstreams);
       }
 
-      const started = msg.metadata.started as string;
-      if (recordTiming && started) {
+      //const started = msg.metadata.started as string;
+      if (recordTiming) {
         const timingInfo = Object.assign(
           {},
           model.metadata.get('execution') as any
         );
+        const started = msg.metadata.started as string;
+        // Started is not in the API, but metadata IPyKernel sends
         if (started) {
           timingInfo['shell.execute_reply.started'] = started;
         }
-        const date = msg.header.date as string;
-        if (date) {
-          timingInfo['shell.execute_reply'] = date;
-        }
+        // Per above, the 5.0 spec does not assume date, so we estimate is required
+        const finished = msg.header.date as string;
+        timingInfo['shell.execute_reply'] =
+          finished || new Date().toISOString();
         model.metadata.set('execution', timingInfo);
       }
       return msg;
@@ -1194,7 +1250,9 @@ export namespace CodeCell {
  * `AttachmentsCell` - A base class for a cell widget that allows
  *  attachments to be drag/drop'd or pasted onto it
  */
-export abstract class AttachmentsCell extends Cell {
+export abstract class AttachmentsCell<
+  T extends IAttachmentsCellModel
+> extends Cell<T> {
   /**
    * Handle the DOM events for the widget.
    *
@@ -1243,7 +1301,7 @@ export abstract class AttachmentsCell extends Cell {
    */
   protected onAfterAttach(msg: Message): void {
     super.onAfterAttach(msg);
-    let node = this.node;
+    const node = this.node;
     node.addEventListener('lm-dragover', this);
     node.addEventListener('lm-drop', this);
     node.addEventListener('dragenter', this);
@@ -1257,7 +1315,7 @@ export abstract class AttachmentsCell extends Cell {
    * message
    */
   protected onBeforeDetach(msg: Message): void {
-    let node = this.node;
+    const node = this.node;
     node.removeEventListener('drop', this);
     node.removeEventListener('dragover', this);
     node.removeEventListener('dragenter', this);
@@ -1289,7 +1347,19 @@ export abstract class AttachmentsCell extends Cell {
    */
   private _evtPaste(event: ClipboardEvent): void {
     if (event.clipboardData) {
-      this._attachFiles(event.clipboardData.items);
+      const items = event.clipboardData.items;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type === 'text/plain') {
+          // Skip if this text is the path to a file
+          if (i < items.length - 1 && items[i + 1].kind === 'file') {
+            continue;
+          }
+          items[i].getAsString(text => {
+            this.editor.replaceSelection?.(text);
+          });
+        }
+        this._attachFiles(event.clipboardData.items);
+      }
     }
     event.preventDefault();
   }
@@ -1419,10 +1489,10 @@ export abstract class AttachmentsCell extends Cell {
   /**
    * The model used by the widget.
    */
-  readonly model: IAttachmentsCellModel;
+  //readonly model: IAttachmentsCellModel;
 }
 
-/******************************************************************************
+/** ****************************************************************************
  * MarkdownCell
  ******************************************************************************/
 
@@ -1435,13 +1505,15 @@ export abstract class AttachmentsCell extends Cell {
  * or the input area model changes.  We don't support automatically
  * updating the rendered text in all of these cases.
  */
-export class MarkdownCell extends AttachmentsCell {
+export class MarkdownCell extends AttachmentsCell<IMarkdownCellModel> {
   /**
    * Construct a Markdown cell widget.
    */
   constructor(options: MarkdownCell.IOptions) {
     super(options);
     this.addClass(MARKDOWN_CELL_CLASS);
+    const trans = this.translator.load('jupyterlab');
+    this.node.setAttribute('aria-label', trans.__('Markdown Cell Content'));
     // Ensure we can resolve attachments:
     this._rendermime = options.rendermime.clone({
       resolver: new AttachmentsResolver({
@@ -1449,6 +1521,14 @@ export class MarkdownCell extends AttachmentsCell {
         model: this.model.attachments
       })
     });
+
+    // Stop codemirror handling paste
+    this.editor.setOption('handlePaste', false);
+
+    // Check if heading cell is set to be collapsed
+    this._headingCollapsed = (this.model.metadata.get(
+      MARKDOWN_HEADING_COLLAPSED
+    ) ?? false) as boolean;
 
     // Throttle the rendering rate of the widget.
     this._monitor = new ActivityMonitor({
@@ -1464,13 +1544,17 @@ export class MarkdownCell extends AttachmentsCell {
     void this._updateRenderedInput().then(() => {
       this._ready.resolve(void 0);
     });
+    this.renderCollapseButtons(this._renderer!);
     this.renderInput(this._renderer!);
+    this._showEditorForReadOnlyMarkdown =
+      options.showEditorForReadOnlyMarkdown ??
+      MarkdownCell.defaultShowEditorForReadOnlyMarkdown;
   }
 
   /**
    * The model used by the widget.
    */
-  readonly model: IMarkdownCellModel;
+ // readonly model: IMarkdownCellModel;
 
   /**
    * A promise that resolves when the widget renders for the first time.
@@ -1480,12 +1564,75 @@ export class MarkdownCell extends AttachmentsCell {
   }
 
   /**
+   * Text that represents the heading if cell is a heading.
+   * Returns empty string if not a heading.
+   */
+  get headingInfo(): { text: string; level: number } {
+    let text = this.model.value.text;
+    const lines = marked.lexer(text);
+    let line: any;
+    for (line of lines) {
+      if (line.type === 'heading') {
+        return { text: line.text, level: line.depth };
+      } else if (line.type === 'html') {
+        let match = line.raw.match(/<h([1-6])(.*?)>(.*?)<\/h\1>/);
+        if (match?.[3]) {
+          return { text: match[3], level: parseInt(match[1]) };
+        }
+        return { text: '', level: -1 };
+      }
+    }
+    return { text: '', level: -1 };
+  }
+
+  get headingCollapsed(): boolean {
+    return this._headingCollapsed;
+  }
+  set headingCollapsed(value: boolean) {
+    this._headingCollapsed = value;
+    if (value) {
+      this.model.metadata.set(MARKDOWN_HEADING_COLLAPSED, value);
+    } else if (this.model.metadata.has(MARKDOWN_HEADING_COLLAPSED)) {
+      this.model.metadata.delete(MARKDOWN_HEADING_COLLAPSED);
+    }
+    const collapseButton = this.inputArea.promptNode.getElementsByClassName(
+      HEADING_COLLAPSER_CLASS
+    )[0];
+    if (collapseButton) {
+      collapseButton.setAttribute(
+        'style',
+        `background:
+      ${
+        value ? 'var(--jp-icon-caret-right)' : 'var(--jp-icon-caret-down)'
+      } no-repeat center`
+      );
+    }
+    this.renderCollapseButtons(this._renderer!);
+  }
+
+  get numberChildNodes(): number {
+    return this._numberChildNodes;
+  }
+  set numberChildNodes(value: number) {
+    this._numberChildNodes = value;
+    this.renderCollapseButtons(this._renderer!);
+  }
+
+  get toggleCollapsedSignal(): Signal<this, boolean> {
+    return this._toggleCollapsedSignal;
+  }
+
+  /**
    * Whether the cell is rendered.
    */
   get rendered(): boolean {
     return this._rendered;
   }
   set rendered(value: boolean) {
+    // Show cell as rendered when cell is not editable
+    if (this.readOnly && this._showEditorForReadOnlyMarkdown === false) {
+      value = true;
+    }
     if (value === this._rendered) {
       return;
     }
@@ -1499,11 +1646,109 @@ export class MarkdownCell extends AttachmentsCell {
     }
   }
 
+  /*
+   * Whether the Markdown editor is visible in read-only mode.
+   */
+  get showEditorForReadOnly(): boolean {
+    return this._showEditorForReadOnlyMarkdown;
+  }
+  set showEditorForReadOnly(value: boolean) {
+    this._showEditorForReadOnlyMarkdown = value;
+    if (value === false) {
+      this.rendered = true;
+    }
+  }
+
+  protected maybeCreateCollapseButton(): void {
+    if (
+      this.headingInfo.level > 0 &&
+      this.inputArea.promptNode.getElementsByClassName(HEADING_COLLAPSER_CLASS)
+        .length == 0
+    ) {
+      let collapseButton = this.inputArea.promptNode.appendChild(
+        document.createElement('button')
+      );
+      collapseButton.className = `jp-Button jp-mod-minimal ${HEADING_COLLAPSER_CLASS}`;
+      collapseButton.style.background = `${
+        this._headingCollapsed
+          ? 'var(--jp-icon-caret-right)'
+          : 'var(--jp-icon-caret-down)'
+      } no-repeat center`;
+      collapseButton.onclick = (event: Event) => {
+        this.headingCollapsed = !this.headingCollapsed;
+        this._toggleCollapsedSignal.emit(this._headingCollapsed);
+      };
+    }
+  }
+
+  /**
+   * Create, update or remove the hidden cells button.
+   * Note that the actual visibility is controlled in Static Notebook by toggling jp-mod-showHiddenCellsButton class.
+   */
+  protected maybeCreateOrUpdateExpandButton(): void {
+    const showHiddenCellsButtonList = this.node.getElementsByClassName(
+      SHOW_HIDDEN_CELLS_CLASS
+    );
+    let trans = this.translator.load('jupyterlab');
+    let buttonText = trans._n(
+      '%1 cell hidden',
+      '%1 cells hidden',
+      this._numberChildNodes
+    );
+    let needToCreateButton =
+      this.headingCollapsed &&
+      this._numberChildNodes > 0 &&
+      showHiddenCellsButtonList.length == 0;
+    if (needToCreateButton) {
+      const newShowHiddenCellsButton = document.createElement('button');
+      newShowHiddenCellsButton.className = `jp-mod-minimal jp-Button ${SHOW_HIDDEN_CELLS_CLASS}`;
+      addIcon.render(newShowHiddenCellsButton);
+      const buttonTextElement = document.createElement('div');
+      buttonTextElement.textContent = buttonText;
+      newShowHiddenCellsButton.appendChild(buttonTextElement);
+      newShowHiddenCellsButton.onclick = () => {
+        this.headingCollapsed = false;
+        this._toggleCollapsedSignal.emit(this._headingCollapsed);
+      };
+      this.node.appendChild(newShowHiddenCellsButton);
+    }
+    let needToUpdateButtonText =
+      this.headingCollapsed &&
+      this._numberChildNodes > 0 &&
+      showHiddenCellsButtonList.length == 1;
+    if (needToUpdateButtonText) {
+      showHiddenCellsButtonList[0].childNodes[1].textContent = buttonText;
+    }
+    let needToRemoveButton = !(
+      this.headingCollapsed && this._numberChildNodes > 0
+    );
+    if (needToRemoveButton) {
+      for (const button of showHiddenCellsButtonList) {
+        this.node.removeChild(button);
+      }
+    }
+  }
+
+  /**
+   * Render the collapse button for heading cells,
+   * and for collapsed heading cells render the "expand hidden cells"
+   * button.
+   */
+  protected renderCollapseButtons(widget: Widget): void {
+    this.node.classList.toggle(
+      MARKDOWN_HEADING_COLLAPSED,
+      this._headingCollapsed
+    );
+    this.maybeCreateCollapseButton();
+    this.maybeCreateOrUpdateExpandButton();
+  }
+
   /**
    * Render an input instead of the text editor.
    */
   protected renderInput(widget: Widget): void {
     this.addClass(RENDERED_CLASS);
+    this.renderCollapseButtons(widget);
     this.inputArea.renderInput(widget);
   }
 
@@ -1513,6 +1758,15 @@ export class MarkdownCell extends AttachmentsCell {
   protected showEditor(): void {
     this.removeClass(RENDERED_CLASS);
     this.inputArea.showEditor();
+    // if this is going to be a heading, place the cursor accordingly
+    let numHashAtStart = (this.model.value.text.match(/^#+/g) || [''])[0]
+      .length;
+    if (numHashAtStart > 0) {
+      this.inputArea.editor.setCursorPosition({
+        column: numHashAtStart + 1,
+        line: 0
+      });
+    }
   }
 
   /*
@@ -1530,10 +1784,11 @@ export class MarkdownCell extends AttachmentsCell {
   protected updateCellSourceWithAttachment(
     attachmentName: string,
     URI?: string
-  ) {
-    const textToBeAppended = `![${attachmentName}](attachment:${URI ??
-      attachmentName})`;
-    this.model.value.insert(this.model.value.text.length, textToBeAppended);
+  ): void {
+    const textToBeAppended = `![${attachmentName}](attachment:${
+      URI ?? attachmentName
+    })`;
+    this.editor.replaceSelection?.(textToBeAppended);
   }
 
   /**
@@ -1554,11 +1809,11 @@ export class MarkdownCell extends AttachmentsCell {
    * Update the rendered input.
    */
   private _updateRenderedInput(): Promise<void> {
-    let model = this.model;
-    let text = (model && model.value.text) || DEFAULT_MARKDOWN_TEXT;
+    const model = this.model;
+    const text = (model && model.value.text) || DEFAULT_MARKDOWN_TEXT;
     // Do not re-render if the text has not changed.
     if (text !== this._prevText) {
-      let mimeModel = new MimeModel({ data: { 'text/markdown': text } });
+      const mimeModel = new MimeModel({ data: { 'text/markdown': text } });
       if (!this._renderer) {
         this._renderer = this._rendermime.createRenderer('text/markdown');
         this._renderer.addClass(MARKDOWN_OUTPUT_CLASS);
@@ -1573,20 +1828,26 @@ export class MarkdownCell extends AttachmentsCell {
    * Clone the cell, using the same model.
    */
   clone(): MarkdownCell {
-    let constructor = this.constructor as typeof MarkdownCell;
+    const constructor = this.constructor as typeof MarkdownCell;
     return new constructor({
       model: this.model,
       contentFactory: this.contentFactory,
-      rendermime: this._rendermime
+      rendermime: this._rendermime,
+      placeholder: false,
+      translator: this.translator
     });
   }
 
   private _monitor: ActivityMonitor<ICellModel, void>;
+  private _numberChildNodes: number;
+  private _headingCollapsed: boolean;
+  private _toggleCollapsedSignal = new Signal<this, boolean>(this);
   private _renderer: IRenderMime.IRenderer | null = null;
   private _rendermime: IRenderMimeRegistry;
   private _rendered = true;
   private _prevText = '';
   private _ready = new PromiseDelegate<void>();
+  private _showEditorForReadOnlyMarkdown = true;
 }
 
 /**
@@ -1596,50 +1857,59 @@ export namespace MarkdownCell {
   /**
    * An options object for initializing a base cell widget.
    */
-  export interface IOptions extends Cell.IOptions {
-    /**
-     * The model used by the cell.
-     */
-    model: IMarkdownCellModel;
-
+  export interface IOptions extends Cell.IOptions<IMarkdownCellModel> {
     /**
      * The mime renderer for the cell widget.
      */
     rendermime: IRenderMimeRegistry;
+
+    /**
+     * Show editor for read-only Markdown cells.
+     */
+    showEditorForReadOnlyMarkdown?: boolean;
   }
+
+  /**
+   * Default value for showEditorForReadOnlyMarkdown.
+   */
+  export const defaultShowEditorForReadOnlyMarkdown = true;
 }
 
-/******************************************************************************
+/** ****************************************************************************
  * RawCell
  ******************************************************************************/
 
 /**
  * A widget for a raw cell.
  */
-export class RawCell extends Cell {
+export class RawCell extends Cell<IRawCellModel> {
   /**
    * Construct a raw cell widget.
    */
-  constructor(options: Cell.IOptions) {
+  constructor(options: RawCell.IOptions) {
     super(options);
     this.addClass(RAW_CELL_CLASS);
+    const trans = this.translator.load('jupyterlab');
+    this.node.setAttribute('aria-label', trans.__('Raw Cell Content'));
   }
 
   /**
    * Clone the cell, using the same model.
    */
   clone(): RawCell {
-    let constructor = this.constructor as typeof RawCell;
+    const constructor = this.constructor as typeof RawCell;
     return new constructor({
       model: this.model,
-      contentFactory: this.contentFactory
+      contentFactory: this.contentFactory,
+      placeholder: false,
+      translator: this.translator
     });
   }
 
   /**
    * The model used by the widget.
    */
-  readonly model: IRawCellModel;
+  //readonly model: IRawCellModel;
 }
 
 /**
@@ -1649,10 +1919,5 @@ export namespace RawCell {
   /**
    * An options object for initializing a base cell widget.
    */
-  export interface IOptions extends Cell.IOptions {
-    /**
-     * The model used by the cell.
-     */
-    model: IRawCellModel;
-  }
+  export interface IOptions extends Cell.IOptions<IRawCellModel> {}
 }
