@@ -1,12 +1,16 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
 
+import {
+  ISessionContextDialogs,
+  sessionContextDialogs
+} from '@jupyterlab/apputils';
 import { IEditorMimeTypeService } from '@jupyterlab/codeeditor';
 
 import { ABCWidgetFactory, DocumentRegistry } from '@jupyterlab/docregistry';
 
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
-
+import { ITranslator } from '@jupyterlab/translation';
 import { ToolbarItems } from './default-toolbar';
 
 import { INotebookModel } from './model';
@@ -15,10 +19,7 @@ import { NotebookPanel } from './panel';
 
 import { StaticNotebook } from './widget';
 
-import {
-  ISessionContextDialogs,
-  sessionContextDialogs
-} from '@jupyterlab/apputils';
+
 
 /**
  * A widget factory for notebook panels.
@@ -90,7 +91,8 @@ export class NotebookWidgetFactory extends ABCWidgetFactory<
     context: DocumentRegistry.IContext<INotebookModel>,
     source?: NotebookPanel
   ): NotebookPanel {
-    let nbOptions = {
+    const translator = (context as any).translator;
+    const nbOptions = {
       rendermime: source
         ? source.content.rendermime
         : this.rendermime.clone({ resolver: context.urlResolver }),
@@ -99,9 +101,10 @@ export class NotebookWidgetFactory extends ABCWidgetFactory<
       editorConfig: source ? source.content.editorConfig : this._editorConfig,
       notebookConfig: source
         ? source.content.notebookConfig
-        : this._notebookConfig
+        : this._notebookConfig,
+      translator
     };
-    let content = this.contentFactory.createNotebook(nbOptions);
+    const content = this.contentFactory.createNotebook(nbOptions);
 
     return new NotebookPanel({ context, content });
   }
@@ -112,7 +115,11 @@ export class NotebookWidgetFactory extends ABCWidgetFactory<
   protected defaultToolbarFactory(
     widget: NotebookPanel
   ): DocumentRegistry.IToolbarItem[] {
-    return ToolbarItems.getDefaultItems(widget, this._sessionDialogs);
+    return ToolbarItems.getDefaultItems(
+      widget,
+      this._sessionDialogs,
+      this.translator
+    );
   }
 
   private _editorConfig: StaticNotebook.IEditorConfig;
@@ -158,6 +165,11 @@ export namespace NotebookWidgetFactory {
      * The session context dialogs.
      */
     sessionDialogs?: ISessionContextDialogs;
+
+    /**
+     * The application language translator.
+     */
+    translator?: ITranslator;
   }
 
   /**
