@@ -1,4 +1,4 @@
-/*-----------------------------------------------------------------------------
+/* -----------------------------------------------------------------------------
 | Copyright (c) Jupyter Development Team.
 | Distributed under the terms of the Modified BSD License.
 |----------------------------------------------------------------------------*/
@@ -33,7 +33,7 @@ const INPUT_PROMPT_CLASS = 'jp-InputPrompt';
  */
 const INPUT_AREA_EDITOR_CLASS = 'jp-InputArea-editor';
 
-/******************************************************************************
+/** ****************************************************************************
  * InputArea
  ******************************************************************************/
 
@@ -183,7 +183,7 @@ export namespace InputArea {
    */
   export interface IContentFactory {
     /**
-     * The editor factory we need to include in `CodeEditorWratter.IOptions`.
+     * The editor factory we need to include in `CodeEditorWrapper.IOptions`.
      *
      * This is a separate readonly attribute rather than a factory method as we need
      * to pass it around.
@@ -263,7 +263,7 @@ export namespace InputArea {
   export const defaultContentFactory = new ContentFactory({});
 }
 
-/******************************************************************************
+/** ****************************************************************************
  * InputPrompt
  ******************************************************************************/
 
@@ -282,7 +282,7 @@ export interface IInputPrompt extends Widget {
  */
 export class InputPrompt extends Widget implements IInputPrompt {
   /*
-   * Create an input prompt widget.
+   * Create an output prompt widget.
    */
   constructor(model: ICellModel) {
     super();
