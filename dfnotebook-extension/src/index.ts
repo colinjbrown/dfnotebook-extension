@@ -1,44 +1,44 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
-
+/**
+ * @packageDocumentation
+ * @module notebook-extension
+ */
 import {
+  ILabShell,
   ILayoutRestorer,
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
-
 import {
+  createToolbarFactory,
   Dialog,
   ICommandPalette,
+  IKernelStatusModel,
+  InputDialog,
+  ISessionContext,
   ISessionContextDialogs,
+  IToolbarWidgetRegistry,
   MainAreaWidget,
+  sessionContextDialogs,
   showDialog,
-  WidgetTracker,
-  sessionContextDialogs
+  Toolbar,
+  WidgetTracker
 } from '@jupyterlab/apputils';
-
-import { CodeCell, DfGraph } from '@dfnotebook/dfcells';
-
-import { IEditorServices } from '@jupyterlab/codeeditor';
-
-import { PageConfig, URLExt } from '@jupyterlab/coreutils';
+import { Cell, CodeCell, ICellModel, MarkdownCell, DfGraph } from '@dfnotebook/dfcells';
+import {
+  CodeEditor,
+  IEditorServices,
+  IPositionModel
+} from '@jupyterlab/codeeditor';
+import { PageConfig } from '@jupyterlab/coreutils';
 
 import { IDocumentManager } from '@jupyterlab/docmanager';
-
+import { ToolbarItems as DocToolbarItems } from '@jupyterlab/docmanager-extension';
+import { DocumentRegistry } from '@jupyterlab/docregistry';
 import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
-
 import { ILauncher } from '@jupyterlab/launcher';
-
-import {
-  IEditMenu,
-  IFileMenu,
-  IHelpMenu,
-  IKernelMenu,
-  IMainMenu,
-  IRunMenu,
-  IViewMenu
-} from '@jupyterlab/mainmenu';
-
+import { IMainMenu } from '@jupyterlab/mainmenu';
 import * as nbformat from '@jupyterlab/nbformat';
 
 import {
@@ -47,50 +47,54 @@ import {
   INotebookWidgetFactory
 } from '@jupyterlab/notebook'
 
+
 import {
-  NotebookTools,
+  CommandEditStatus,
+  ExecutionIndicator,
+  Notebook,
   NotebookActions,
   NotebookModelFactory,
   NotebookPanel,
+  NotebookTools,
   NotebookTracker,
+  NotebookTrustStatus,
   NotebookWidgetFactory,
   StaticNotebook,
-  CommandEditStatus,
-  NotebookTrustStatus,
+  ToolbarItems
 } from '@dfnotebook/dfnotebook';
-
+import {
+  IObservableList,
+  IObservableUndoableList
+} from '@jupyterlab/observables';
 import { IPropertyInspectorProvider } from '@jupyterlab/property-inspector';
-
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
-
-import { ServiceManager } from '@jupyterlab/services';
-
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
-
 import { IStateDB } from '@jupyterlab/statedb';
-
 import { IStatusBar } from '@jupyterlab/statusbar';
-
-import { buildIcon, notebookIcon } from '@jupyterlab/ui-components';
-
+import { ITranslator, nullTranslator } from '@jupyterlab/translation';
+import {
+  addIcon,
+  buildIcon,
+  copyIcon,
+  cutIcon,
+  notebookIcon,
+  pasteIcon
+} from '@jupyterlab/ui-components';
+import { ICompletionProviderManager } from '@jupyterlab/completer';
 import { ArrayExt } from '@lumino/algorithm';
-
 import { CommandRegistry } from '@lumino/commands';
-
 import {
   JSONExt,
   JSONObject,
   JSONValue,
-  ReadonlyPartialJSONObject,
   ReadonlyJSONValue,
+  ReadonlyPartialJSONObject,
   UUID
 } from '@lumino/coreutils';
-
-import { DisposableSet } from '@lumino/disposable';
-
+import { DisposableSet, IDisposable } from '@lumino/disposable';
 import { Message, MessageLoop } from '@lumino/messaging';
-
-import { Panel, Menu, Widget } from '@lumino/widgets';
+import { Menu, Panel, Widget } from '@lumino/widgets';
+import { logNotebookOutput } from './nboutput';
 
 /**
  * The command IDs used by the notebook plugin.
@@ -112,11 +116,15 @@ namespace CommandIDs {
 
   export const changeKernel = 'notebook:change-kernel';
 
+  export const getKernel = 'notebook:get-kernel';
+
   export const createConsole = 'notebook:create-console';
 
   export const createOutputView = 'notebook:create-output-view';
 
   export const clearAllOutputs = 'notebook:clear-all-cell-outputs';
+
+  export const shutdown = 'notebook:shutdown-kernel';
 
   export const closeAndShutdown = 'notebook:close-and-shutdown';
 
@@ -172,6 +180,16 @@ namespace CommandIDs {
 
   export const selectBelow = 'notebook:move-cursor-down';
 
+  export const selectHeadingAboveOrCollapse =
+    'notebook:move-cursor-heading-above-or-collapse';
+
+  export const selectHeadingBelowOrExpand =
+    'notebook:move-cursor-heading-below-or-expand';
+
+  export const insertHeadingAbove = 'notebook:insert-heading-above';
+
+  export const insertHeadingBelow = 'notebook:insert-heading-below';
+
   export const extendAbove = 'notebook:extend-marked-cells-above';
 
   export const extendTop = 'notebook:extend-marked-cells-top';
@@ -188,6 +206,10 @@ namespace CommandIDs {
 
   export const merge = 'notebook:merge-cells';
 
+  export const mergeAbove = 'notebook:merge-cell-above';
+
+  export const mergeBelow = 'notebook:merge-cell-below';
+
   export const split = 'notebook:split-cell-at-cursor';
 
   export const commandMode = 'notebook:enter-command-mode';
@@ -197,6 +219,10 @@ namespace CommandIDs {
   export const undoCellAction = 'notebook:undo-cell-action';
 
   export const redoCellAction = 'notebook:redo-cell-action';
+
+  export const redo = 'notebook:redo';
+
+  export const undo = 'notebook:undo';
 
   export const markdown1 = 'notebook:change-cell-to-heading-1';
 
@@ -226,6 +252,11 @@ namespace CommandIDs {
 
   export const showAllOutputs = 'notebook:show-all-cell-outputs';
 
+  export const toggleRenderSideBySideCurrentNotebook =
+    'notebook:toggle-render-side-by-side-current';
+
+  export const setSideBySideRatio = 'notebook:set-side-by-side-ratio';
+
   export const enableOutputScrolling = 'notebook:enable-output-scrolling';
 
   export const disableOutputScrolling = 'notebook:disable-output-scrolling';
@@ -233,6 +264,20 @@ namespace CommandIDs {
   export const selectLastRunCell = 'notebook:select-last-run-cell';
 
   export const replaceSelection = 'notebook:replace-selection';
+
+  export const autoClosingBrackets = 'notebook:toggle-autoclosing-brackets';
+
+  export const toggleCollapseCmd = 'notebook:toggle-heading-collapse';
+
+  export const collapseAllCmd = 'notebook:collapse-all-headings';
+
+  export const expandAllCmd = 'notebook:expand-all-headings';
+
+  export const copyToClipboard = 'notebook:copy-to-clipboard';
+
+  export const invokeCompleter = 'completer:invoke-notebook';
+
+  export const selectCompleter = 'completer:select-notebook';
 }
 
 /**
@@ -241,29 +286,20 @@ namespace CommandIDs {
 const FACTORY = 'Notebook';
 
 /**
- * The exluded Export To ...
+ * The excluded Export To ...
  * (returned from nbconvert's export list)
  */
 const FORMAT_EXCLUDE = ['notebook', 'python', 'custom'];
 
 /**
- * The exluded Cell Inspector Raw NbConvert Formats
- * (returned from nbconvert's export list)
+ * Setting Id storing the customized toolbar definition.
  */
-const RAW_FORMAT_EXCLUDE = ['pdf', 'slides', 'script', 'notebook', 'custom'];
+const PANEL_SETTINGS = 'dfnotebook-extension:panel';
 
 /**
- * The default Export To ... formats and their human readable labels.
+ * The id to use on the style tag for the side by side margins.
  */
-const FORMAT_LABEL: { [k: string]: string } = {
-  html: 'HTML',
-  latex: 'LaTeX',
-  markdown: 'Markdown',
-  pdf: 'PDF',
-  rst: 'ReStructured Text',
-  script: 'Executable Script',
-  slides: 'Reveal.js Slides'
-};
+const SIDE_BY_SIDE_STYLE_ID = 'jp-NotebookExtension-sideBySideMargins';
 
 /**
  * The notebook widget tracker provider.
@@ -271,7 +307,7 @@ const FORMAT_LABEL: { [k: string]: string } = {
 const trackerPlugin: JupyterFrontEndPlugin<INotebookTracker> = {
   id: 'dfnotebook-extension:tracker',
   provides: INotebookTracker,
-  requires: [INotebookWidgetFactory, IDocumentManager],
+  requires: [INotebookWidgetFactory, ITranslator],
   optional: [
     ICommandPalette,
     IFileBrowserFactory,
@@ -294,7 +330,7 @@ const factory: JupyterFrontEndPlugin<NotebookPanel.IContentFactory> = {
   requires: [IEditorServices],
   autoStart: true,
   activate: (app: JupyterFrontEnd, editorServices: IEditorServices) => {
-    let editorFactory = editorServices.factoryService.newInlineEditor;
+    const editorFactory = editorServices.factoryService.newInlineEditor;
     return new NotebookPanel.ContentFactory({ editorFactory });
   }
 };
@@ -307,7 +343,7 @@ const tools: JupyterFrontEndPlugin<INotebookTools> = {
   provides: INotebookTools,
   id: 'dfnotebook-extension:tools',
   autoStart: true,
-  requires: [INotebookTracker, IEditorServices, IStateDB],
+  requires: [INotebookTracker, IEditorServices, IStateDB, ITranslator],
   optional: [IPropertyInspectorProvider]
 };
 
@@ -317,11 +353,12 @@ const tools: JupyterFrontEndPlugin<INotebookTools> = {
 export const commandEditItem: JupyterFrontEndPlugin<void> = {
   id: 'dfnotebook-extension:mode-status',
   autoStart: true,
-  requires: [INotebookTracker],
+  requires: [INotebookTracker, ITranslator],
   optional: [IStatusBar],
   activate: (
     app: JupyterFrontEnd,
     tracker: INotebookTracker,
+    translator: ITranslator,
     statusBar: IStatusBar | null
   ) => {
     if (!statusBar) {
@@ -329,12 +366,11 @@ export const commandEditItem: JupyterFrontEndPlugin<void> = {
       return;
     }
     const { shell } = app;
-    const item = new CommandEditStatus();
+    const item = new CommandEditStatus(translator);
 
     // Keep the status item up-to-date with the current notebook.
     tracker.currentChanged.connect(() => {
-      // FIXME as unknown
-      const current = tracker.currentWidget as unknown as NotebookPanel;
+      const current = tracker.currentWidget;
       item.model.notebook = current && current.content;
     });
 
@@ -351,16 +387,234 @@ export const commandEditItem: JupyterFrontEndPlugin<void> = {
 };
 
 /**
+ * A plugin that provides a execution indicator item to the status bar.
+ */
+export const executionIndicator: JupyterFrontEndPlugin<void> = {
+  id: 'dfnotebook-extension:execution-indicator',
+  autoStart: true,
+  requires: [INotebookTracker, ILabShell, ITranslator],
+  optional: [IStatusBar, ISettingRegistry],
+  activate: (
+    app: JupyterFrontEnd,
+    notebookTracker: INotebookTracker,
+    labShell: ILabShell,
+    translator: ITranslator,
+    statusBar: IStatusBar | null,
+    settingRegistry: ISettingRegistry | null
+  ) => {
+    let statusbarItem: ExecutionIndicator;
+    let labShellCurrentChanged: (
+      _: ILabShell,
+      change: ILabShell.IChangedArgs
+    ) => void;
+
+    let statusBarDisposable: IDisposable;
+
+    const updateSettings = (settings: {
+      showOnToolBar: boolean;
+      showProgress: boolean;
+    }): void => {
+      let { showOnToolBar, showProgress } = settings;
+
+      if (!showOnToolBar) {
+        // Status bar mode, only one `ExecutionIndicator` is needed.
+        if (!statusBar) {
+          // Automatically disable if statusbar missing
+          return;
+        }
+
+        if (!statusbarItem?.model) {
+          statusbarItem = new ExecutionIndicator(translator);
+          labShellCurrentChanged = (
+            _: ILabShell,
+            change: ILabShell.IChangedArgs
+          ) => {
+            const { newValue } = change;
+            if (newValue && notebookTracker.has(newValue)) {
+              const panel = newValue as NotebookPanel;
+              statusbarItem.model!.attachNotebook({
+                content: panel.content,
+                context: panel.sessionContext
+              });
+            }
+          };
+          statusBarDisposable = statusBar.registerStatusItem(
+            'dfnotebook-extension:execution-indicator',
+            {
+              item: statusbarItem,
+              align: 'left',
+              rank: 3,
+              isActive: () => {
+                const current = labShell.currentWidget;
+                return !!current && notebookTracker.has(current);
+              }
+            }
+          );
+
+          //@tsconfig-ignore
+          statusbarItem.model.attachNotebook({
+            content: notebookTracker.currentWidget?.content,
+            context: notebookTracker.currentWidget?.sessionContext
+          });
+
+          labShell.currentChanged.connect(labShellCurrentChanged);
+          statusbarItem.disposed.connect(() => {
+            labShell.currentChanged.disconnect(labShellCurrentChanged);
+          });
+        }
+
+        statusbarItem.model.displayOption = {
+          showOnToolBar,
+          showProgress
+        };
+      } else {
+        //Remove old indicator widget on status bar
+        if (statusBarDisposable) {
+          labShell.currentChanged.disconnect(labShellCurrentChanged);
+          statusBarDisposable.dispose();
+        }
+      }
+    };
+
+    if (settingRegistry) {
+      // Indicator is default in tool bar, user needs to specify its
+      // position in settings in order to have indicator on status bar.
+      const loadSettings = settingRegistry.load(trackerPlugin.id);
+      Promise.all([loadSettings, app.restored])
+        .then(([settings]) => {
+          updateSettings(ExecutionIndicator.getSettingValue(settings));
+          settings.changed.connect(sender =>
+            updateSettings(ExecutionIndicator.getSettingValue(sender))
+          );
+        })
+        .catch((reason: Error) => {
+          console.error(reason.message);
+        });
+    }
+  }
+};
+
+/**
+ * A plugin providing export commands in the main menu and command palette
+ */
+export const exportPlugin: JupyterFrontEndPlugin<void> = {
+  id: 'dfnotebook-extension:export',
+  autoStart: true,
+  requires: [ITranslator, INotebookTracker],
+  optional: [IMainMenu, ICommandPalette],
+  activate: (
+    app: JupyterFrontEnd,
+    translator: ITranslator,
+    tracker: INotebookTracker,
+    mainMenu: IMainMenu | null,
+    palette: ICommandPalette | null
+  ) => {
+    const trans = translator.load('jupyterlab');
+    const { commands, shell } = app;
+    const services = app.serviceManager;
+
+    const isEnabled = (): boolean => {
+      return Private.isEnabled(shell, tracker);
+    };
+
+    commands.addCommand(CommandIDs.exportToFormat, {
+      label: args => {
+        const formatLabel = args['label'] as string;
+        return args['isPalette']
+          ? trans.__('Save and Export Notebook: %1', formatLabel)
+          : formatLabel;
+      },
+      execute: args => {
+        const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+        if (!current) {
+          return;
+        }
+
+        const url = PageConfig.getNBConvertURL({
+          format: args['format'] as string,
+          download: true,
+          path: current.context.path
+        });
+        const { context } = current;
+
+        if (context.model.dirty && !context.model.readOnly) {
+          return context.save().then(() => {
+            window.open(url, '_blank', 'noopener');
+          });
+        }
+
+        return new Promise<void>(resolve => {
+          window.open(url, '_blank', 'noopener');
+          resolve(undefined);
+        });
+      },
+      isEnabled
+    });
+
+    // Add a notebook group to the File menu.
+    let exportTo: Menu | null | undefined;
+    if (mainMenu) {
+      exportTo = mainMenu.fileMenu.items.find(
+        item =>
+          item.type === 'submenu' &&
+          item.submenu?.id === 'jp-mainmenu-file-notebookexport'
+      )?.submenu;
+    }
+
+    void services.nbconvert.getExportFormats().then(response => {
+      if (response) {
+        const formatLabels: any = Private.getFormatLabels(translator);
+
+        // Convert export list to palette and menu items.
+        const formatList = Object.keys(response);
+        formatList.forEach(function (key) {
+          const capCaseKey = trans.__(key[0].toUpperCase() + key.substr(1));
+          const labelStr = formatLabels[key] ? formatLabels[key] : capCaseKey;
+          let args = {
+            format: key,
+            label: labelStr,
+            isPalette: false
+          };
+          if (FORMAT_EXCLUDE.indexOf(key) === -1) {
+            if (exportTo) {
+              exportTo.addItem({
+                command: CommandIDs.exportToFormat,
+                args: args
+              });
+            }
+            if (palette) {
+              args = {
+                format: key,
+                label: labelStr,
+                isPalette: true
+              };
+              const category = trans.__('Notebook Operations');
+              palette.addItem({
+                command: CommandIDs.exportToFormat,
+                category,
+                args
+              });
+            }
+          }
+        });
+      }
+    });
+  }
+};
+
+/**
  * A plugin that adds a notebook trust status item to the status bar.
  */
 export const notebookTrustItem: JupyterFrontEndPlugin<void> = {
   id: 'dfnotebook-extension:trust-status',
   autoStart: true,
-  requires: [INotebookTracker],
+  requires: [INotebookTracker, ITranslator],
   optional: [IStatusBar],
   activate: (
     app: JupyterFrontEnd,
     tracker: INotebookTracker,
+    tranlator: ITranslator,
     statusBar: IStatusBar | null
   ) => {
     if (!statusBar) {
@@ -368,11 +622,12 @@ export const notebookTrustItem: JupyterFrontEndPlugin<void> = {
       return;
     }
     const { shell } = app;
-    const item = new NotebookTrustStatus();
+    const item = new NotebookTrustStatus(tranlator);
 
     // Keep the status item up-to-date with the current notebook.
+    //@tsconfig-ignore
     tracker.currentChanged.connect(() => {
-      const current = tracker.currentWidget as unknown as NotebookPanel;
+      const current = tracker.currentWidget;
       item.model.notebook = current && current.content;
     });
 
@@ -400,8 +655,12 @@ const widgetFactoryPlugin: JupyterFrontEndPlugin<NotebookWidgetFactory.IFactory>
   requires: [
     NotebookPanel.IContentFactory,
     IEditorServices,
-    IRenderMimeRegistry
+    IRenderMimeRegistry,
+    ISessionContextDialogs,
+    IToolbarWidgetRegistry,
+    ITranslator
   ],
+  optional: [ISettingRegistry],
   activate: activateWidgetFactory,
   autoStart: true
 };
@@ -456,19 +715,129 @@ const DepViewer: JupyterFrontEndPlugin<void> = {
     }
 };
 
+/**
+ * The cloned output provider.
+ */
+const clonedOutputsPlugin: JupyterFrontEndPlugin<void> = {
+  id: 'dfnotebook-extension:cloned-outputs',
+  requires: [IDocumentManager, INotebookTracker, ITranslator],
+  optional: [ILayoutRestorer],
+  activate: activateClonedOutputs,
+  autoStart: true
+};
 
+/**
+ * A plugin for code consoles functionalities.
+ */
+const codeConsolePlugin: JupyterFrontEndPlugin<void> = {
+  id: 'dfnotebook-extension:code-console',
+  requires: [INotebookTracker, ITranslator],
+  activate: activateCodeConsole,
+  autoStart: true
+};
 
+/**
+ * A plugin to copy CodeCell outputs.
+ */
+const copyOutputPlugin: JupyterFrontEndPlugin<void> = {
+  id: 'dfnotebook-extension:copy-output',
+  activate: activateCopyOutput,
+  requires: [ITranslator, INotebookTracker],
+  autoStart: true
+};
+
+/**
+ * Kernel status indicator.
+ */
+const kernelStatus: JupyterFrontEndPlugin<void> = {
+  id: 'dfnotebook-extension:kernel-status',
+  activate: (
+    app: JupyterFrontEnd,
+    tracker: INotebookTracker,
+    kernelStatus: IKernelStatusModel
+  ) => {
+    const provider = (widget: Widget | null) => {
+      let session: ISessionContext | null = null;
+
+      if (widget && tracker.has(widget)) {
+        return (widget as NotebookPanel).sessionContext;
+      }
+
+      return session;
+    };
+
+    kernelStatus.addSessionProvider(provider);
+  },
+  requires: [INotebookTracker, IKernelStatusModel],
+  autoStart: true
+};
+
+/**
+ * Cursor position.
+ */
+const lineColStatus: JupyterFrontEndPlugin<void> = {
+  id: 'dfnotebook-extension:cursor-position',
+  activate: (
+    app: JupyterFrontEnd,
+    tracker: INotebookTracker,
+    positionModel: IPositionModel
+  ) => {
+    let previousWidget: NotebookPanel | null = null;
+
+    const provider = (widget: Widget | null) => {
+      let editor: CodeEditor.IEditor | null = null;
+      if (widget !== previousWidget) {
+        previousWidget?.content.activeCellChanged.disconnect(
+          positionModel.update
+        );
+
+        previousWidget = null;
+        if (widget && tracker.has(widget)) {
+          (widget as NotebookPanel).content.activeCellChanged.connect(
+            positionModel.update
+          );
+          editor = (widget as NotebookPanel).content.activeCell?.editor ?? null;
+          previousWidget = widget as NotebookPanel;
+        }
+      } else if (widget) {
+        editor = (widget as NotebookPanel).content.activeCell?.editor ?? null;
+      }
+      return editor;
+    };
+
+    positionModel.addEditorProvider(provider);
+  },
+  requires: [INotebookTracker, IPositionModel],
+  autoStart: true
+};
+
+const completerPlugin: JupyterFrontEndPlugin<void> = {
+  id: 'dfnotebook-extension:completer',
+  requires: [INotebookTracker],
+  optional: [ICompletionProviderManager],
+  activate: activateNotebookCompleterService,
+  autoStart: true
+};
 /**
  * Export the plugins as default.
  */
 const plugins: JupyterFrontEndPlugin<any>[] = [
   factory,
-  DepViewer,
   trackerPlugin,
+  DepViewer,
+  executionIndicator,
+  exportPlugin,
   tools,
   commandEditItem,
   notebookTrustItem,
-  widgetFactoryPlugin
+  widgetFactoryPlugin,
+  logNotebookOutput,
+  clonedOutputsPlugin,
+  codeConsolePlugin,
+  copyOutputPlugin,
+  kernelStatus,
+  lineColStatus,
+  completerPlugin
 ];
 export default plugins;
 
@@ -480,20 +849,24 @@ function activateNotebookTools(
   tracker: INotebookTracker,
   editorServices: IEditorServices,
   state: IStateDB,
+  translator: ITranslator,
   inspectorProvider: IPropertyInspectorProvider | null
 ): INotebookTools {
+  const trans = translator.load('jupyterlab');
   const id = 'notebook-tools';
-  // FIXME as unknown
-  const notebookTools = new NotebookTools({ tracker: tracker as unknown as NotebookTracker });
+  const notebookTools = new NotebookTools({ tracker: tracker as unknown as NotebookTracker, translator });
   const activeCellTool = new NotebookTools.ActiveCellTool();
-  const slideShow = NotebookTools.createSlideShowSelector();
+  const editable = NotebookTools.createEditableToggle(translator);
+  const slideShow = NotebookTools.createSlideShowSelector(translator);
   const editorFactory = editorServices.factoryService.newInlineEditor;
   const cellMetadataEditor = new NotebookTools.CellMetadataEditorTool({
     editorFactory,
-    collapsed: false
+    collapsed: false,
+    translator
   });
   const notebookMetadataEditor = new NotebookTools.NotebookMetadataEditorTool({
-    editorFactory
+    editorFactory,
+    translator
   });
 
   const services = app.serviceManager;
@@ -513,30 +886,54 @@ function activateNotebookTools(
     }
     return true;
   };
-  let optionsMap: { [key: string]: JSONValue } = {};
+  const optionsMap: { [key: string]: JSONValue } = {};
   optionsMap.None = null;
   void services.nbconvert.getExportFormats().then(response => {
     if (response) {
+      /**
+       * The excluded Cell Inspector Raw NbConvert Formats
+       * (returned from nbconvert's export list)
+       */
+      const rawFormatExclude = [
+        'pdf',
+        'slides',
+        'script',
+        'notebook',
+        'custom'
+      ];
+      let optionValueArray: any = [
+        [trans.__('PDF'), 'pdf'],
+        [trans.__('Slides'), 'slides'],
+        [trans.__('Script'), 'script'],
+        [trans.__('Notebook'), 'notebook'],
+        [trans.__('Custom'), 'custom']
+      ];
+
       // convert exportList to palette and menu items
       const formatList = Object.keys(response);
-      formatList.forEach(function(key) {
-        if (RAW_FORMAT_EXCLUDE.indexOf(key) === -1) {
-          let capCaseKey = key[0].toUpperCase() + key.substr(1);
-          let labelStr = FORMAT_LABEL[key] ? FORMAT_LABEL[key] : capCaseKey;
-          let mimeType = response[key].output_mimetype;
-          optionsMap[labelStr] = mimeType;
+      const formatLabels = Private.getFormatLabels(translator);
+      formatList.forEach(function (key) {
+        if (rawFormatExclude.indexOf(key) === -1) {
+          const altOption = trans.__(key[0].toUpperCase() + key.substr(1));
+          const option = formatLabels[key] ? formatLabels[key] : altOption;
+          const mimeTypeValue = response[key].output_mimetype;
+          optionValueArray.push([option, mimeTypeValue]);
         }
       });
-      const nbConvert = NotebookTools.createNBConvertSelector(optionsMap);
+      const nbConvert = NotebookTools.createNBConvertSelector(
+        optionValueArray,
+        translator
+      );
       notebookTools.addItem({ tool: nbConvert, section: 'common', rank: 3 });
     }
   });
   notebookTools.title.icon = buildIcon;
-  notebookTools.title.caption = 'Notebook Tools';
+  notebookTools.title.caption = trans.__('Notebook Tools');
   notebookTools.id = id;
 
   notebookTools.addItem({ tool: activeCellTool, section: 'common', rank: 1 });
-  notebookTools.addItem({ tool: slideShow, section: 'common', rank: 2 });
+  notebookTools.addItem({ tool: editable, section: 'common', rank: 2 });
+  notebookTools.addItem({ tool: slideShow, section: 'common', rank: 3 });
 
   notebookTools.addItem({
     tool: cellMetadataEditor,
@@ -558,7 +955,6 @@ function activateNotebookTools(
     });
   }
 
-  // FIXME as unknown
   return notebookTools as unknown as INotebookTools;
 }
 
@@ -569,59 +965,106 @@ function activateWidgetFactory(
   app: JupyterFrontEnd,
   contentFactory: NotebookPanel.IContentFactory,
   editorServices: IEditorServices,
-  rendermime: IRenderMimeRegistry
+  rendermime: IRenderMimeRegistry,
+  sessionContextDialogs: ISessionContextDialogs,
+  toolbarRegistry: IToolbarWidgetRegistry,
+  translator: ITranslator,
+  settingRegistry: ISettingRegistry | null
 ): NotebookWidgetFactory.IFactory {
+  const preferKernelOption = PageConfig.getOption('notebookStartsKernel');
+
+  // If the option is not set, assume `true`
+  const preferKernelValue =
+    preferKernelOption === '' || preferKernelOption.toLowerCase() === 'true';
+
+  const { commands } = app;
+  let toolbarFactory:
+    | ((
+        widget: NotebookPanel
+      ) =>
+        | DocumentRegistry.IToolbarItem[]
+        | IObservableList<DocumentRegistry.IToolbarItem>)
+    | undefined;
+
+  // Register notebook toolbar widgets
+  toolbarRegistry.registerFactory<NotebookPanel>(FACTORY, 'save', panel =>
+    DocToolbarItems.createSaveButton(commands, panel.context.fileChanged)
+  );
+  toolbarRegistry.registerFactory<NotebookPanel>(FACTORY, 'cellType', panel =>
+    ToolbarItems.createCellTypeItem(panel, translator)
+  );
+  toolbarRegistry.registerFactory<NotebookPanel>(FACTORY, 'kernelName', panel =>
+    Toolbar.createKernelNameItem(
+      panel.sessionContext,
+      sessionContextDialogs,
+      translator
+    )
+  );
+
+  toolbarRegistry.registerFactory<NotebookPanel>(
+    FACTORY,
+    'executionProgress',
+    panel => {
+      return ExecutionIndicator.createExecutionIndicatorItem(
+        panel,
+        translator,
+        settingRegistry?.load(trackerPlugin.id)
+      );
+    }
+  );
+
+  if (settingRegistry) {
+    // Create the factory
+    toolbarFactory = createToolbarFactory(
+      toolbarRegistry,
+      settingRegistry,
+      FACTORY,
+      PANEL_SETTINGS,
+      translator
+    );
+  }
+
+  const trans = translator.load('jupyterlab');
+
   const factory = new NotebookWidgetFactory({
     name: FACTORY,
+    label: trans.__('Notebook'),
     fileTypes: ['notebook'],
     modelName: 'notebook',
     defaultFor: ['notebook'],
-    preferKernel: true,
+    preferKernel: preferKernelValue,
     canStartKernel: true,
-    rendermime: rendermime,
+    rendermime,
     contentFactory,
     editorConfig: StaticNotebook.defaultEditorConfig,
     notebookConfig: StaticNotebook.defaultNotebookConfig,
-    mimeTypeService: editorServices.mimeTypeService
+    mimeTypeService: editorServices.mimeTypeService,
+    sessionDialogs: sessionContextDialogs,
+    toolbarFactory,
+    translator: translator
   });
   app.docRegistry.addWidgetFactory(factory);
   return factory;
 }
 
 /**
- * Activate the notebook handler extension.
+ * Activate the plugin to create and track cloned outputs.
  */
-function activateNotebookHandler(
+function activateClonedOutputs(
   app: JupyterFrontEnd,
-  factory: NotebookWidgetFactory.IFactory,
   docManager: IDocumentManager,
-  palette: ICommandPalette | null,
-  browserFactory: IFileBrowserFactory | null,
-  launcher: ILauncher | null,
-  restorer: ILayoutRestorer | null,
-  mainMenu: IMainMenu | null,
-  settingRegistry: ISettingRegistry | null,
-  sessionDialogs: ISessionContextDialogs | null
-): INotebookTracker {
-  console.log("STARTING NOTEBOOK HANDLER!");
-  const services = app.serviceManager;
-
-  const { commands } = app;
-  const tracker = new NotebookTracker({ namespace: 'notebook' });
+  notebookTracker: INotebookTracker,
+  translator: ITranslator,
+  restorer: ILayoutRestorer | null
+): void {
+  const trans = translator.load('jupyterlab');
   const clonedOutputs = new WidgetTracker<
     MainAreaWidget<Private.ClonedOutputArea>
   >({
     namespace: 'cloned-outputs'
   });
 
-  // Handle state restoration.
   if (restorer) {
-    void restorer.restore(tracker, {
-      command: 'docmanager:open',
-      args: panel => ({ path: panel.context.path, factory: FACTORY }),
-      name: panel => panel.context.path,
-      when: services.ready
-    });
     void restorer.restore(clonedOutputs, {
       command: CommandIDs.createOutputView,
       args: widget => ({
@@ -629,427 +1072,109 @@ function activateNotebookHandler(
         index: widget.content.index
       }),
       name: widget => `${widget.content.path}:${widget.content.index}`,
-      when: tracker.restored // After the notebook widgets (but not contents).
+      when: notebookTracker.restored // After the notebook widgets (but not contents).
     });
   }
 
-  let registry = app.docRegistry;
-  registry.addModelFactory(new NotebookModelFactory({}));
+  const { commands, shell } = app;
 
-  addCommands(
-    app,
-    docManager,
-    services,
-    tracker,
-    clonedOutputs,
-    sessionDialogs
-  );
-  if (palette) {
-    populatePalette(palette, services);
-  }
-
-  let id = 0; // The ID counter for notebook panels.
-
-  let ft = app.docRegistry.getFileType('notebook');
-
-  factory.widgetCreated.connect((sender, widget) => {
-    // If the notebook panel does not have an ID, assign it one.
-    widget.id = widget.id || `notebook-${++id}`;
-
-    // Set up the title icon
-    widget.title.icon = ft?.icon;
-    widget.title.iconClass = ft?.iconClass ?? '';
-    widget.title.iconLabel = ft?.iconLabel ?? '';
-
-    // Notify the widget tracker if restore data needs to update.
-    widget.context.pathChanged.connect(() => {
-      void tracker.save(widget);
-    });
-    // Add the notebook panel to the tracker.
-    void tracker.add(widget);
-  });
-
-  /**
-   * Update the settings of the current tracker.
-   */
-  function updateTracker(options: NotebookPanel.IConfig): void {
-    tracker.forEach(widget => {
-      widget.setConfig(options);
-    });
-  }
-
-  /**
-   * Update the setting values.
-   */
-  function updateConfig(settings: ISettingRegistry.ISettings): void {
-    let code = {
-      ...StaticNotebook.defaultEditorConfig.code,
-      ...(settings.get('codeCellConfig').composite as JSONObject)
-    };
-
-    let markdown = {
-      ...StaticNotebook.defaultEditorConfig.markdown,
-      ...(settings.get('markdownCellConfig').composite as JSONObject)
-    };
-
-    let raw = {
-      ...StaticNotebook.defaultEditorConfig.raw,
-      ...(settings.get('rawCellConfig').composite as JSONObject)
-    };
-
-    factory.editorConfig = { code, markdown, raw };
-    factory.notebookConfig = {
-      scrollPastEnd: settings.get('scrollPastEnd').composite as boolean,
-      defaultCell: settings.get('defaultCell').composite as nbformat.CellType,
-      recordTiming: settings.get('recordTiming').composite as boolean
-    };
-    factory.shutdownOnClose = settings.get('kernelShutdown')
-      .composite as boolean;
-
-    updateTracker({
-      editorConfig: factory.editorConfig,
-      notebookConfig: factory.notebookConfig,
-      kernelShutdown: factory.shutdownOnClose
-    });
-  }
-
-  // Fetch settings if possible.
-  const fetchSettings = settingRegistry
-    ? settingRegistry.load(trackerPlugin.id)
-    : Promise.reject(new Error(`No setting registry for ${trackerPlugin.id}`));
-  app.restored
-    .then(() => fetchSettings)
-    .then(settings => {
-      updateConfig(settings);
-      settings.changed.connect(() => {
-        updateConfig(settings);
-      });
-    })
-    .catch((reason: Error) => {
-      console.warn(reason.message);
-      updateTracker({
-        editorConfig: factory.editorConfig,
-        notebookConfig: factory.notebookConfig,
-        kernelShutdown: factory.shutdownOnClose
-      });
-    });
-
-  // Add main menu notebook menu.
-  if (mainMenu) {
-    // FIXME as unknown
-    populateMenus(app, mainMenu, tracker as unknown as INotebookTracker, services, palette, sessionDialogs);
-  }
-
-  // Utility function to create a new notebook.
-  const createNew = (cwd: string, kernelName?: string) => {
-    return commands
-      .execute('docmanager:new-untitled', { path: cwd, type: 'notebook' })
-      .then(model => {
-        return commands.execute('docmanager:open', {
-          path: model.path,
-          factory: FACTORY,
-          kernel: { name: kernelName }
-        });
-      });
+  const isEnabledAndSingleSelected = (): boolean => {
+    return Private.isEnabledAndSingleSelected(shell, notebookTracker);
   };
 
-  // Add a command for creating a new notebook.
-  commands.addCommand(CommandIDs.createNew, {
-    label: args => {
-      const kernelName = (args['kernelName'] as string) || '';
-      if (args['isLauncher'] && args['kernelName'] && services.kernelspecs) {
-        return (
-          services.kernelspecs.specs?.kernelspecs[kernelName]?.display_name ??
-          ''
-        );
-      }
-      if (args['isPalette']) {
-        return 'New Notebook';
-      }
-      return 'Notebook';
-    },
-    caption: 'Create a new notebook',
-    icon: args => (args['isPalette'] ? undefined : notebookIcon),
-    execute: args => {
-      const cwd =
-        (args['cwd'] as string) ||
-        (browserFactory ? browserFactory.defaultBrowser.model.path : '');
-      const kernelName = (args['kernelName'] as string) || '';
-      return createNew(cwd, kernelName);
-    }
-  });
-
-  // Add a launcher item if the launcher is available.
-  if (launcher) {
-    void services.ready.then(() => {
-      let disposables: DisposableSet | null = null;
-      const onSpecsChanged = () => {
-        if (disposables) {
-          disposables.dispose();
-          disposables = null;
-        }
-        const specs = services.kernelspecs.specs;
-        if (!specs) {
+  commands.addCommand(CommandIDs.createOutputView, {
+    label: trans.__('Create New View for Cell Output'),
+    execute: async args => {
+      let cell: CodeCell | undefined;
+      let current: NotebookPanel | undefined | null;
+      // If we are given a notebook path and cell index, then
+      // use that, otherwise use the current active cell.
+      const path = args.path as string | undefined | null;
+      let index = args.index as number | undefined | null;
+      if (path && index !== undefined && index !== null) {
+        current = docManager.findWidget(path, FACTORY) as NotebookPanel;
+        if (!current) {
           return;
         }
-        disposables = new DisposableSet();
-        const baseUrl = PageConfig.getBaseUrl();
-
-        for (let name in specs.kernelspecs) {
-          let rank = name === specs.default ? 0 : Infinity;
-          const spec = specs.kernelspecs[name]!;
-          let kernelIconUrl = spec.resources['logo-64x64'];
-          if (kernelIconUrl) {
-            let index = kernelIconUrl.indexOf('kernelspecs');
-            kernelIconUrl = URLExt.join(baseUrl, kernelIconUrl.slice(index));
-          }
-          disposables.add(
-            launcher.add({
-              command: CommandIDs.createNew,
-              args: { isLauncher: true, kernelName: name },
-              category: 'Notebook',
-              rank,
-              kernelIconUrl,
-              metadata: {
-                kernel: JSONExt.deepCopy(
-                  spec.metadata || {}
-                ) as ReadonlyJSONValue
-              }
-            })
-          );
+      } else {
+        current = notebookTracker.currentWidget;
+        if (!current) {
+          return;
         }
+        cell = current.content.activeCell as CodeCell;
+        index = current.content.activeCellIndex;
+      }
+      // Create a MainAreaWidget
+      const content = new Private.ClonedOutputArea({
+        notebook: current,
+        cell,
+        index,
+        translator
+      });
+      const widget = new MainAreaWidget({ content });
+      current.context.addSibling(widget, {
+        ref: current.id,
+        mode: 'split-bottom'
+      });
+
+      const updateCloned = () => {
+        void clonedOutputs.save(widget);
       };
-      onSpecsChanged();
-      services.kernelspecs.specsChanged.connect(onSpecsChanged);
-    });
-  }
 
-  // Cell context menu groups
-  app.contextMenu.addItem({
-    type: 'separator',
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 0
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.cut,
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 1
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.copy,
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 2
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.pasteBelow,
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 3
-  });
-  app.contextMenu.addItem({
-    type: 'separator',
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 4
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.deleteCell,
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 5
-  });
-  app.contextMenu.addItem({
-    type: 'separator',
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 6
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.split,
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 7
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.merge,
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 8
-  });
-  app.contextMenu.addItem({
-    type: 'separator',
-    selector: '.jp-Notebook .jp-Cell',
-    rank: 9
-  });
+      current.context.pathChanged.connect(updateCloned);
+      current.context.model?.cells.changed.connect(updateCloned);
 
-  // CodeCell context menu groups
-  app.contextMenu.addItem({
-    command: CommandIDs.createOutputView,
-    selector: '.jp-Notebook .jp-CodeCell',
-    rank: 10
-  });
-  app.contextMenu.addItem({
-    type: 'separator',
-    selector: '.jp-Notebook .jp-CodeCell',
-    rank: 11
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.clearOutputs,
-    selector: '.jp-Notebook .jp-CodeCell',
-    rank: 12
-  });
+      // Add the cloned output to the output widget tracker.
+      void clonedOutputs.add(widget);
 
-  // Notebook context menu groups
-  app.contextMenu.addItem({
-    command: CommandIDs.clearAllOutputs,
-    selector: '.jp-Notebook',
-    rank: 0
+      // Remove the output view if the parent notebook is closed.
+      current.content.disposed.connect(() => {
+        current!.context.pathChanged.disconnect(updateCloned);
+        current!.context.model?.cells.changed.disconnect(updateCloned);
+        widget.dispose();
+      });
+    },
+    isEnabled: isEnabledAndSingleSelected
   });
-  app.contextMenu.addItem({
-    type: 'separator',
-    selector: '.jp-Notebook',
-    rank: 1
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.enableOutputScrolling,
-    selector: '.jp-Notebook',
-    rank: 2
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.disableOutputScrolling,
-    selector: '.jp-Notebook',
-    rank: 3
-  });
-  app.contextMenu.addItem({
-    type: 'separator',
-    selector: '.jp-Notebook',
-    rank: 4
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.undoCellAction,
-    selector: '.jp-Notebook',
-    rank: 5
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.redoCellAction,
-    selector: '.jp-Notebook',
-    rank: 6
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.restart,
-    selector: '.jp-Notebook',
-    rank: 7
-  });
-  app.contextMenu.addItem({
-    type: 'separator',
-    selector: '.jp-Notebook',
-    rank: 8
-  });
-  app.contextMenu.addItem({
-    command: CommandIDs.createConsole,
-    selector: '.jp-Notebook',
-    rank: 9
-  });
-
-  // FIXME as unknown
-  return tracker as unknown as INotebookTracker;
 }
 
 /**
- * Add the notebook commands to the application's command registry.
+ * Activate the plugin to add code console functionalities
  */
-function addCommands(
+function activateCodeConsole(
   app: JupyterFrontEnd,
-  docManager: IDocumentManager,
-  services: ServiceManager,
-  tracker: NotebookTracker,
-  clonedOutputs: WidgetTracker<MainAreaWidget>,
-  sessionDialogs: ISessionContextDialogs | null
+  tracker: INotebookTracker,
+  translator: ITranslator
 ): void {
+  const trans = translator.load('jupyterlab');
   const { commands, shell } = app;
 
-  sessionDialogs = sessionDialogs ?? sessionContextDialogs;
+  const isEnabled = (): boolean => Private.isEnabled(shell, tracker);
 
-  // Get the current widget and activate unless the args specify otherwise.
-  function getCurrent(args: ReadonlyPartialJSONObject): NotebookPanel | null {
-    const widget = tracker.currentWidget;
-    const activate = args['activate'] !== false;
-
-    if (activate && widget) {
-      shell.activateById(widget.id);
-    }
-
-    return widget;
-  }
-
-  /**
-   * Whether there is an active notebook.
-   */
-  function isEnabled(): boolean {
-    return (
-      tracker.currentWidget !== null &&
-      tracker.currentWidget === shell.currentWidget
-    );
-  }
-
-  /**
-   * Whether there is an notebook active, with a single selected cell.
-   */
-  function isEnabledAndSingleSelected(): boolean {
-    if (!isEnabled()) {
-      return false;
-    }
-    const { content } = tracker.currentWidget!;
-    const index = content.activeCellIndex;
-    // If there are selections that are not the active cell,
-    // this command is confusing, so disable it.
-    for (let i = 0; i < content.widgets.length; ++i) {
-      if (content.isSelected(content.widgets[i]) && i !== index) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  commands.addCommand(CommandIDs.runAndAdvance, {
-    label: 'Run Selected Cells',
+  commands.addCommand(CommandIDs.createConsole, {
+    label: trans.__('New Console for Notebook'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = tracker.currentWidget;
 
-      if (current) {
-        const { context, content } = current;
-
-        return NotebookActions.runAndAdvance(content, context.sessionContext);
+      if (!current) {
+        return;
       }
+
+      return Private.createConsole(
+        commands,
+        current,
+        args['activate'] as boolean
+      );
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.run, {
-    label: "Run Selected Cells and Don't Advance",
-    execute: args => {
-      const current = getCurrent(args);
 
-      if (current) {
-        const { context, content } = current;
-
-        return NotebookActions.run(content, context.sessionContext);
-      }
-    },
-    isEnabled
-  });
-  commands.addCommand(CommandIDs.runAndInsert, {
-    label: 'Run Selected Cells and Insert Below',
-    execute: args => {
-      const current = getCurrent(args);
-
-      if (current) {
-        const { context, content } = current;
-
-        return NotebookActions.runAndInsert(content, context.sessionContext);
-      }
-    },
-    isEnabled
-  });
   commands.addCommand(CommandIDs.runInConsole, {
-    label: 'Run Selected Text or Current Line in Console',
+    label: trans.__('Run Selected Text or Current Line in Console'),
     execute: async args => {
       // Default to not activating the notebook (thereby putting the notebook
       // into command mode)
-      const current = getCurrent({ activate: false, ...args });
+      const current = tracker.currentWidget;
 
       if (!current) {
         return;
@@ -1057,9 +1182,9 @@ function addCommands(
 
       const { context, content } = current;
 
-      let cell = content.activeCell;
-      let metadata = cell?.model.metadata.toJSON();
-      let path = context.path;
+      const cell = content.activeCell;
+      const metadata = cell?.model.metadata.toJSON();
+      const path = context.path;
       // ignore action in non-code cell
       if (!cell || cell.model.type !== 'code') {
         return;
@@ -1069,7 +1194,7 @@ function addCommands(
       const editor = cell.editor;
       const selection = editor.getSelection();
       const { start, end } = selection;
-      let selected = start.column !== end.column || start.line !== end.line;
+      const selected = start.column !== end.column || start.line !== end.line;
 
       if (selected) {
         // Get the selected code from the editor.
@@ -1079,7 +1204,7 @@ function addCommands(
       } else {
         // no selection, find the complete statement around the current line
         const cursor = editor.getCursorPosition();
-        let srcLines = editor.model.value.text.split('\n');
+        const srcLines = editor.model.value.text.split('\n');
         let curLine = selection.start.line;
         while (
           curLine < editor.lineCount &&
@@ -1091,9 +1216,10 @@ function addCommands(
         let fromFirst = curLine > 0;
         let firstLine = 0;
         let lastLine = firstLine + 1;
+        // eslint-disable-next-line
         while (true) {
           code = srcLines.slice(firstLine, lastLine).join('\n');
-          let reply = await current.context.sessionContext.session?.kernel?.requestIsComplete(
+          const reply = await current.context.sessionContext.session?.kernel?.requestIsComplete(
             {
               // ipython needs an empty line at the end to correctly identify completeness of indented code
               code: code + '\n\n'
@@ -1163,10 +1289,557 @@ function addCommands(
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.runAll, {
-    label: 'Run All Cells',
+}
+
+/**
+ * Activate the output copying extension
+ */
+function activateCopyOutput(
+  app: JupyterFrontEnd,
+  translator: ITranslator,
+  tracker: INotebookTracker
+): void {
+  const trans = translator.load('jupyterlab');
+
+  /**
+   * Copy the contents of an HTMLElement to the system clipboard
+   */
+  function copyElement(e: HTMLElement): void {
+    const sel = window.getSelection();
+
+    if (sel == null) {
+      return;
+    }
+
+    // Save the current selection.
+    const savedRanges: Range[] = [];
+    for (let i = 0; i < sel.rangeCount; ++i) {
+      savedRanges[i] = sel.getRangeAt(i).cloneRange();
+    }
+
+    const range = document.createRange();
+    range.selectNodeContents(e);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    document.execCommand('copy');
+
+    // Restore the saved selection.
+    sel.removeAllRanges();
+    savedRanges.forEach(r => sel.addRange(r));
+  }
+
+  app.commands.addCommand(CommandIDs.copyToClipboard, {
+    label: trans.__('Copy Output to Clipboard'),
     execute: args => {
-      const current = getCurrent(args);
+      const cell = tracker.currentWidget?.content.activeCell as CodeCell;
+
+      if (cell == null) {
+        return;
+      }
+
+      const output = cell.outputArea.outputTracker.currentWidget;
+
+      if (output == null) {
+        return;
+      }
+
+      const outputAreaAreas = output.node.getElementsByClassName(
+        'jp-OutputArea-output'
+      );
+      if (outputAreaAreas.length > 0) {
+        const area = outputAreaAreas[0];
+        copyElement(area as HTMLElement);
+      }
+    }
+  });
+
+  app.contextMenu.addItem({
+    command: CommandIDs.copyToClipboard,
+    selector: '.jp-OutputArea-child',
+    rank: 0
+  });
+}
+
+/**
+ * Activate the notebook handler extension.
+ */
+function activateNotebookHandler(
+  app: JupyterFrontEnd,
+  factory: NotebookWidgetFactory.IFactory,
+  translator: ITranslator,
+  palette: ICommandPalette | null,
+  browserFactory: IFileBrowserFactory | null,
+  launcher: ILauncher | null,
+  restorer: ILayoutRestorer | null,
+  mainMenu: IMainMenu | null,
+  settingRegistry: ISettingRegistry | null,
+  sessionDialogs: ISessionContextDialogs | null
+): INotebookTracker {
+  const trans = translator.load('jupyterlab');
+  const services = app.serviceManager;
+
+  const { commands, shell } = app;
+  const tracker = new NotebookTracker({ namespace: 'notebook' });
+
+  const isEnabled = (): boolean => {
+    return Private.isEnabled(shell as unknown as INotebookTracker, tracker);
+  };
+
+  // Fetch settings if possible.
+  const fetchSettings = settingRegistry
+    ? settingRegistry.load(trackerPlugin.id)
+    : Promise.reject(new Error(`No setting registry for ${trackerPlugin.id}`));
+
+  fetchSettings
+    .then(settings => {
+      updateConfig(settings);
+      settings.changed.connect(() => {
+        updateConfig(settings);
+      });
+      commands.addCommand(CommandIDs.autoClosingBrackets, {
+        execute: args => {
+          const codeConfig = settings.get('codeCellConfig')
+            .composite as JSONObject;
+          const markdownConfig = settings.get('markdownCellConfig')
+            .composite as JSONObject;
+          const rawConfig = settings.get('rawCellConfig')
+            .composite as JSONObject;
+
+          const anyToggled =
+            codeConfig.autoClosingBrackets ||
+            markdownConfig.autoClosingBrackets ||
+            rawConfig.autoClosingBrackets;
+          const toggled = !!(args['force'] ?? !anyToggled);
+          [
+            codeConfig.autoClosingBrackets,
+            markdownConfig.autoClosingBrackets,
+            rawConfig.autoClosingBrackets
+          ] = [toggled, toggled, toggled];
+
+          void settings.set('codeCellConfig', codeConfig);
+          void settings.set('markdownCellConfig', markdownConfig);
+          void settings.set('rawCellConfig', rawConfig);
+        },
+        label: trans.__('Auto Close Brackets for All Notebook Cell Types'),
+        isToggled: () =>
+          ['codeCellConfig', 'markdownCellConfig', 'rawCellConfig'].some(
+            x => (settings.get(x).composite as JSONObject).autoClosingBrackets
+          )
+      });
+    })
+    .catch((reason: Error) => {
+      console.warn(reason.message);
+      updateTracker({
+        editorConfig: factory.editorConfig,
+        notebookConfig: factory.notebookConfig,
+        kernelShutdown: factory.shutdownOnClose
+      });
+    });
+
+  // Handle state restoration.
+  if (restorer) {
+    void restorer.restore(tracker as unknown as NotebookTracker, {
+      command: 'docmanager:open',
+      args: panel => ({ path: panel.context.path, factory: FACTORY }),
+      name: panel => panel.context.path,
+      when: services.ready
+    });
+  }
+
+  const registry = app.docRegistry;
+  const modelFactory = new NotebookModelFactory({
+    disableDocumentWideUndoRedo:
+      factory.notebookConfig.disableDocumentWideUndoRedo
+  });
+  registry.addModelFactory(modelFactory);
+
+  addCommands(app, tracker as unknown as NotebookTracker, translator, sessionDialogs, isEnabled);
+
+  if (palette) {
+    populatePalette(palette, translator);
+  }
+
+  let id = 0; // The ID counter for notebook panels.
+
+  const ft = app.docRegistry.getFileType('notebook');
+
+  factory.widgetCreated.connect((sender, widget) => {
+    // If the notebook panel does not have an ID, assign it one.
+    widget.id = widget.id || `notebook-${++id}`;
+
+    // Set up the title icon
+    widget.title.icon = ft?.icon;
+    widget.title.iconClass = ft?.iconClass ?? '';
+    widget.title.iconLabel = ft?.iconLabel ?? '';
+
+    // Notify the widget tracker if restore data needs to update.
+    widget.context.pathChanged.connect(() => {
+      void tracker.save(widget);
+    });
+    // Add the notebook panel to the tracker.
+    void tracker.add(widget);
+  });
+
+  /**
+   * Update the settings of the current tracker.
+   */
+  function updateTracker(options: NotebookPanel.IConfig): void {
+    tracker.forEach(widget => {
+      widget.setConfig(options);
+    });
+  }
+
+  /**
+   * Update the setting values.
+   */
+  function updateConfig(settings: ISettingRegistry.ISettings): void {
+    const code = {
+      ...StaticNotebook.defaultEditorConfig.code,
+      ...(settings.get('codeCellConfig').composite as JSONObject)
+    };
+
+    const markdown = {
+      ...StaticNotebook.defaultEditorConfig.markdown,
+      ...(settings.get('markdownCellConfig').composite as JSONObject)
+    };
+
+    const raw = {
+      ...StaticNotebook.defaultEditorConfig.raw,
+      ...(settings.get('rawCellConfig').composite as JSONObject)
+    };
+
+    factory.editorConfig = { code, markdown, raw };
+    factory.notebookConfig = {
+      showHiddenCellsButton: settings.get('showHiddenCellsButton')
+        .composite as boolean,
+      scrollPastEnd: settings.get('scrollPastEnd').composite as boolean,
+      defaultCell: settings.get('defaultCell').composite as nbformat.CellType,
+      recordTiming: settings.get('recordTiming').composite as boolean,
+      numberCellsToRenderDirectly: settings.get('numberCellsToRenderDirectly')
+        .composite as number,
+      renderCellOnIdle: settings.get('renderCellOnIdle').composite as boolean,
+      observedTopMargin: settings.get('observedTopMargin').composite as string,
+      observedBottomMargin: settings.get('observedBottomMargin')
+        .composite as string,
+      maxNumberOutputs: settings.get('maxNumberOutputs').composite as number,
+      showEditorForReadOnlyMarkdown: settings.get(
+        'showEditorForReadOnlyMarkdown'
+      ).composite as boolean,
+      disableDocumentWideUndoRedo: settings.get(
+        'experimentalDisableDocumentWideUndoRedo'
+      ).composite as boolean,
+      renderingLayout: settings.get('renderingLayout').composite as
+        | 'default'
+        | 'side-by-side',
+      sideBySideLeftMarginOverride: settings.get('sideBySideLeftMarginOverride')
+        .composite as string,
+      sideBySideRightMarginOverride: settings.get(
+        'sideBySideRightMarginOverride'
+      ).composite as string
+    };
+    const sideBySideMarginStyle = `.jp-mod-sideBySide.jp-Notebook .jp-Notebook-cell {
+      margin-left: ${factory.notebookConfig.sideBySideLeftMarginOverride} !important;
+      margin-right: ${factory.notebookConfig.sideBySideRightMarginOverride} !important;`;
+    const sideBySideMarginTag = document.getElementById(SIDE_BY_SIDE_STYLE_ID);
+    if (sideBySideMarginTag) {
+      sideBySideMarginTag.innerText = sideBySideMarginStyle;
+    } else {
+      document.head.insertAdjacentHTML(
+        'beforeend',
+        `<style id="${SIDE_BY_SIDE_STYLE_ID}">${sideBySideMarginStyle}}</style>`
+      );
+    }
+    factory.shutdownOnClose = settings.get('kernelShutdown')
+      .composite as boolean;
+
+    modelFactory.disableDocumentWideUndoRedo = settings.get(
+      'experimentalDisableDocumentWideUndoRedo'
+    ).composite as boolean;
+
+    updateTracker({
+      editorConfig: factory.editorConfig,
+      notebookConfig: factory.notebookConfig,
+      kernelShutdown: factory.shutdownOnClose
+    });
+  }
+
+  // Add main menu notebook menu.
+  if (mainMenu) {
+    populateMenus(mainMenu, tracker as unknown as INotebookTracker, sessionDialogs, isEnabled);
+  }
+
+  // Utility function to create a new notebook.
+  const createNew = (cwd: string, kernelName?: string) => {
+    return commands
+      .execute('docmanager:new-untitled', { path: cwd, type: 'notebook' })
+      .then(model => {
+        if (model != undefined) {
+          return commands.execute('docmanager:open', {
+            path: model.path,
+            factory: FACTORY,
+            kernel: { name: kernelName }
+          });
+        }
+      });
+  };
+
+  // Add a command for creating a new notebook.
+  commands.addCommand(CommandIDs.createNew, {
+    label: args => {
+      const kernelName = (args['kernelName'] as string) || '';
+      if (args['isLauncher'] && args['kernelName'] && services.kernelspecs) {
+        return (
+          services.kernelspecs.specs?.kernelspecs[kernelName]?.display_name ??
+          ''
+        );
+      }
+      if (args['isPalette'] || args['isContextMenu']) {
+        return trans.__('New Notebook');
+      }
+      return trans.__('Notebook');
+    },
+    caption: trans.__('Create a new notebook'),
+    icon: args => (args['isPalette'] ? undefined : notebookIcon),
+    execute: args => {
+      const cwd =
+        (args['cwd'] as string) ||
+        (browserFactory ? browserFactory.defaultBrowser.model.path : '');
+      const kernelName = (args['kernelName'] as string) || '';
+      return createNew(cwd, kernelName);
+    }
+  });
+
+  // Add a launcher item if the launcher is available.
+  if (launcher) {
+    void services.ready.then(() => {
+      let disposables: DisposableSet | null = null;
+      const onSpecsChanged = () => {
+        if (disposables) {
+          disposables.dispose();
+          disposables = null;
+        }
+        const specs = services.kernelspecs.specs;
+        if (!specs) {
+          return;
+        }
+        disposables = new DisposableSet();
+
+        for (const name in specs.kernelspecs) {
+          const rank = name === specs.default ? 0 : Infinity;
+          const spec = specs.kernelspecs[name]!;
+          let kernelIconUrl = spec.resources['logo-64x64'];
+          disposables.add(
+            launcher.add({
+              command: CommandIDs.createNew,
+              args: { isLauncher: true, kernelName: name },
+              category: trans.__('Notebook'),
+              rank,
+              kernelIconUrl,
+              metadata: {
+                kernel: JSONExt.deepCopy(
+                  spec.metadata || {}
+                ) as ReadonlyJSONValue
+              }
+            })
+          );
+        }
+      };
+      onSpecsChanged();
+      services.kernelspecs.specsChanged.connect(onSpecsChanged);
+    });
+  }
+
+  return tracker;
+}
+
+/**
+ * Activate the completer service for notebook.
+ */
+function activateNotebookCompleterService(
+  app: JupyterFrontEnd,
+  notebooks: INotebookTracker,
+  manager?: ICompletionProviderManager
+): void {
+  if (!manager) {
+    return;
+  }
+  app.commands.addCommand(CommandIDs.invokeCompleter, {
+    execute: args => {
+      const panel = notebooks.currentWidget;
+      if (panel && panel.content.activeCell?.model.type === 'code') {
+        manager.invoke(panel.id);
+      }
+    }
+  });
+
+  app.commands.addCommand(CommandIDs.selectCompleter, {
+    execute: () => {
+      const id = notebooks.currentWidget && notebooks.currentWidget.id;
+
+      if (id) {
+        return manager.select(id);
+      }
+    }
+  });
+
+  app.commands.addKeyBinding({
+    command: CommandIDs.selectCompleter,
+    keys: ['Enter'],
+    selector: '.jp-Notebook .jp-mod-completer-active'
+  });
+  const updateCompleter = async (
+    _: INotebookTracker | undefined,
+    notebook: NotebookPanel
+  ) => {
+    const completerContext = {
+      editor: notebook.content.activeCell?.editor ?? null,
+      session: notebook.sessionContext.session,
+      widget: notebook
+    };
+    await manager.updateCompleter(completerContext);
+    notebook.content.activeCellChanged.connect((_, cell) => {
+      const newCompleterContext = {
+        editor: cell.editor,
+        session: notebook.sessionContext.session,
+        widget: notebook
+      };
+      manager.updateCompleter(newCompleterContext).catch(console.error);
+    });
+    notebook.sessionContext.sessionChanged.connect(() => {
+      const newCompleterContext = {
+        editor: notebook.content.activeCell?.editor ?? null,
+        session: notebook.sessionContext.session,
+        widget: notebook
+      };
+      manager.updateCompleter(newCompleterContext).catch(console.error);
+    });
+  };
+  notebooks.widgetAdded.connect(updateCompleter);
+  manager.activeProvidersChanged.connect(() => {
+    notebooks.forEach(panel => {
+      updateCompleter(undefined, panel).catch(e => console.error(e));
+    });
+  });
+}
+
+// Get the current widget and activate unless the args specify otherwise.
+function getCurrent(
+  tracker: INotebookTracker,
+  shell: JupyterFrontEnd.IShell,
+  args: ReadonlyPartialJSONObject
+): NotebookPanel | null {
+  const widget = tracker.currentWidget;
+  const activate = args['activate'] !== false;
+
+  if (activate && widget) {
+    shell.activateById(widget.id);
+  }
+
+  return widget;
+}
+
+/**
+ * Add the notebook commands to the application's command registry.
+ */
+function addCommands(
+  app: JupyterFrontEnd,
+  tracker: NotebookTracker,
+  translator: ITranslator,
+  sessionDialogs: ISessionContextDialogs | null,
+  isEnabled: () => boolean
+): void {
+  const trans = translator.load('jupyterlab');
+  const { commands, shell } = app;
+
+  sessionDialogs = sessionDialogs ?? sessionContextDialogs;
+
+  const isEnabledAndSingleSelected = (): boolean => {
+    return Private.isEnabledAndSingleSelected(shell, tracker as unknown as INotebookTracker);
+  };
+
+  const refreshCellCollapsed = (notebook: Notebook): void => {
+    for (const cell of notebook.widgets) {
+      if (cell instanceof MarkdownCell && cell.headingCollapsed) {
+        NotebookActions.setHeadingCollapse(cell, true, notebook);
+      }
+      if (cell.model.id === notebook.activeCell?.model?.id) {
+        NotebookActions.expandParent(cell, notebook);
+      }
+    }
+  };
+
+  const isEnabledAndHeadingSelected = (): boolean => {
+    return Private.isEnabledAndHeadingSelected(shell, tracker as unknown as INotebookTracker);
+  };
+
+  // Set up signal handler to keep the collapse state consistent
+  tracker.currentChanged.connect(
+    (sender: INotebookTracker, panel: NotebookPanel) => {
+      if (!panel?.content?.model?.cells) {
+        return;
+      }
+      panel.content.model.cells.changed.connect(
+        (
+          list: IObservableUndoableList<ICellModel>,
+          args: IObservableList.IChangedArgs<ICellModel>
+        ) => {
+          // Might be overkill to refresh this every time, but
+          // it helps to keep the collapse state consistent.
+          refreshCellCollapsed(panel.content);
+        }
+      );
+      panel.content.activeCellChanged.connect(
+        (notebook: Notebook, cell: Cell) => {
+          NotebookActions.expandParent(cell, notebook);
+        }
+      );
+    }
+  );
+
+  commands.addCommand(CommandIDs.runAndAdvance, {
+    label: trans.__('Run Selected Cells'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        const { context, content } = current;
+
+        return NotebookActions.runAndAdvance(content, context.sessionContext);
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.run, {
+    label: trans.__("Run Selected Cells and Don't Advance"),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        const { context, content } = current;
+
+        return NotebookActions.run(content, context.sessionContext);
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.runAndInsert, {
+    label: trans.__('Run Selected Cells and Insert Below'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        const { context, content } = current;
+
+        return NotebookActions.runAndInsert(content, context.sessionContext);
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.runAll, {
+    label: trans.__('Run All Cells'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         const { context, content } = current;
@@ -1177,9 +1850,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.runAllAbove, {
-    label: 'Run All Above Selected Cell',
+    label: trans.__('Run All Above Selected Cell'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         const { context, content } = current;
@@ -1197,9 +1870,9 @@ function addCommands(
     }
   });
   commands.addCommand(CommandIDs.runAllBelow, {
-    label: 'Run Selected Cell and All Below',
+    label: trans.__('Run Selected Cell and All Below'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         const { context, content } = current;
@@ -1218,9 +1891,9 @@ function addCommands(
     }
   });
   commands.addCommand(CommandIDs.renderAllMarkdown, {
-    label: 'Render All Markdown Cells',
+    label: trans.__('Render All Markdown Cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
       if (current) {
         const { context, content } = current;
         return NotebookActions.renderAllMarkdown(
@@ -1232,20 +1905,33 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.restart, {
-    label: 'Restart Kernel…',
+    label: trans.__('Restart Kernel…'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
-        return sessionDialogs!.restart(current.sessionContext);
+        return sessionDialogs!.restart(current.sessionContext, translator);
       }
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.closeAndShutdown, {
-    label: 'Close and Shut Down',
+  commands.addCommand(CommandIDs.shutdown, {
+    label: trans.__('Shut Down Kernel'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (!current) {
+        return;
+      }
+
+      return current.context.sessionContext.shutdown();
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.closeAndShutdown, {
+    label: trans.__('Close and Shut Down Notebook'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (!current) {
         return;
@@ -1254,23 +1940,25 @@ function addCommands(
       const fileName = current.title.label;
 
       return showDialog({
-        title: 'Shut down the notebook?',
-        body: `Are you sure you want to close "${fileName}"?`,
+        title: trans.__('Shut down the notebook?'),
+        body: trans.__('Are you sure you want to close "%1"?', fileName),
         buttons: [Dialog.cancelButton(), Dialog.warnButton()]
       }).then(result => {
         if (result.button.accept) {
-          return current.context.sessionContext.shutdown().then(() => {
-            current.dispose();
-          });
+          return commands
+            .execute(CommandIDs.shutdown, { activate: false })
+            .then(() => {
+              current.dispose();
+            });
         }
       });
     },
     isEnabled
   });
   commands.addCommand(CommandIDs.trust, {
-    label: () => 'Trust Notebook',
+    label: () => trans.__('Trust Notebook'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
       if (current) {
         const { context, content } = current;
         return NotebookActions.trust(content).then(() => context.save());
@@ -1278,107 +1966,54 @@ function addCommands(
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.exportToFormat, {
-    label: args => {
-      const formatLabel = args['label'] as string;
-
-      return (args['isPalette'] ? 'Export Notebook to ' : '') + formatLabel;
-    },
-    execute: args => {
-      const current = getCurrent(args);
-
-      if (!current) {
-        return;
-      }
-
-      const url = PageConfig.getNBConvertURL({
-        format: args['format'] as string,
-        download: true,
-        path: current.context.path
-      });
-      const child = window.open('', '_blank');
-      const { context } = current;
-
-      if (child) {
-        child.opener = null;
-      }
-      if (context.model.dirty && !context.model.readOnly) {
-        return context.save().then(() => {
-          child?.location.assign(url);
-        });
-      }
-
-      return new Promise<void>(resolve => {
-        child?.location.assign(url);
-        resolve(undefined);
-      });
-    },
-    isEnabled
-  });
   commands.addCommand(CommandIDs.restartClear, {
-    label: 'Restart Kernel and Clear All Outputs…',
-    execute: args => {
-      const current = getCurrent(args);
-
-      if (current) {
-        const { content, sessionContext } = current;
-
-        return sessionDialogs!.restart(sessionContext).then(() => {
-          NotebookActions.clearAllOutputs(content);
-        });
+    label: trans.__('Restart Kernel and Clear Outputs of All Cells…'),
+    caption: trans.__('Restart the kernel and clear all outputs of all cells'),
+    execute: async () => {
+      const restarted: boolean = await commands.execute(CommandIDs.restart, {
+        activate: false
+      });
+      if (restarted) {
+        await commands.execute(CommandIDs.clearAllOutputs);
       }
     },
     isEnabled
   });
   commands.addCommand(CommandIDs.restartAndRunToSelected, {
-    label: 'Restart Kernel and Run up to Selected Cell…',
-    execute: args => {
-      const current = getCurrent(args);
-      if (current) {
-        const { context, content } = current;
-        return sessionDialogs!
-          .restart(current.sessionContext)
-          .then(restarted => {
-            if (restarted) {
-              void NotebookActions.runAllAbove(
-                content,
-                context.sessionContext
-              ).then(executed => {
-                if (executed || content.activeCellIndex === 0) {
-                  void NotebookActions.run(content, context.sessionContext);
-                }
-              });
-            }
-          });
+    label: trans.__('Restart Kernel and Run up to Selected Cell…'),
+    execute: async () => {
+      const restarted: boolean = await commands.execute(CommandIDs.restart, {
+        activate: false
+      });
+      if (restarted) {
+        const executed: boolean = await commands.execute(
+          CommandIDs.runAllAbove,
+          { activate: false }
+        );
+        if (executed) {
+          return commands.execute(CommandIDs.run);
+        }
       }
     },
-    isEnabled: () => {
-      // Can't run if there are multiple cells selected
-      return isEnabledAndSingleSelected();
-    }
+    isEnabled: isEnabledAndSingleSelected
   });
   commands.addCommand(CommandIDs.restartRunAll, {
-    label: 'Restart Kernel and Run All Cells…',
-    execute: args => {
-      const current = getCurrent(args);
-
-      if (current) {
-        const { context, content, sessionContext } = current;
-
-        return sessionDialogs!.restart(sessionContext).then(restarted => {
-          if (restarted) {
-            void NotebookActions.runAll(content, context.sessionContext);
-          }
-          return restarted;
-        });
+    label: trans.__('Restart Kernel and Run All Cells…'),
+    execute: async () => {
+      const restarted: boolean = await commands.execute(CommandIDs.restart, {
+        activate: false
+      });
+      if (restarted) {
+        await commands.execute(CommandIDs.runAll);
       }
     },
     isEnabled
   });
   commands.addCommand(CommandIDs.clearAllOutputs, {
-    label: 'Clear All Outputs',
+    label: trans.__('Clear Outputs of All Cells'),
+    caption: trans.__('Clear all outputs of all cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.clearAllOutputs(current.content);
@@ -1387,9 +2022,10 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.clearOutputs, {
-    label: 'Clear Outputs',
+    label: trans.__('Clear Cell Output'),
+    caption: trans.__('Clear outputs for the selected cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.clearOutputs(current.content);
@@ -1398,9 +2034,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.interrupt, {
-    label: 'Interrupt Kernel',
+    label: trans.__('Interrupt Kernel'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (!current) {
         return;
@@ -1415,9 +2051,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.toCode, {
-    label: 'Change to Code Cell Type',
+    label: trans.__('Change to Code Cell Type'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.changeCellType(current.content, 'code');
@@ -1426,9 +2062,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.toMarkdown, {
-    label: 'Change to Markdown Cell Type',
+    label: trans.__('Change to Markdown Cell Type'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.changeCellType(current.content, 'markdown');
@@ -1437,9 +2073,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.toRaw, {
-    label: 'Change to Raw Cell Type',
+    label: trans.__('Change to Raw Cell Type'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.changeCellType(current.content, 'raw');
@@ -1448,42 +2084,48 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.cut, {
-    label: 'Cut Cells',
+    label: trans.__('Cut Cells'),
+    caption: trans.__('Cut the selected cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.cut(current.content);
       }
     },
+    icon: args => (args.toolbar ? cutIcon : undefined),
     isEnabled
   });
   commands.addCommand(CommandIDs.copy, {
-    label: 'Copy Cells',
+    label: trans.__('Copy Cells'),
+    caption: trans.__('Copy the selected cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.copy(current.content);
       }
     },
+    icon: args => (args.toolbar ? copyIcon : ''),
     isEnabled
   });
   commands.addCommand(CommandIDs.pasteBelow, {
-    label: 'Paste Cells Below',
+    label: trans.__('Paste Cells Below'),
+    caption: trans.__('Paste cells from the clipboard'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.paste(current.content, 'below');
       }
     },
+    icon: args => (args.toolbar ? pasteIcon : undefined),
     isEnabled
   });
   commands.addCommand(CommandIDs.pasteAbove, {
-    label: 'Paste Cells Above',
+    label: trans.__('Paste Cells Above'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.paste(current.content, 'above');
@@ -1492,9 +2134,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.pasteAndReplace, {
-    label: 'Paste Cells and Replace',
+    label: trans.__('Paste Cells and Replace'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.paste(current.content, 'replace');
@@ -1503,9 +2145,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.deleteCell, {
-    label: 'Delete Cells',
+    label: trans.__('Delete Cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.deleteCells(current.content);
@@ -1514,9 +2156,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.split, {
-    label: 'Split Cell',
+    label: trans.__('Split Cell'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.splitCell(current.content);
@@ -1525,9 +2167,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.merge, {
-    label: 'Merge Selected Cells',
+    label: trans.__('Merge Selected Cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.mergeCells(current.content);
@@ -1535,10 +2177,32 @@ function addCommands(
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.insertAbove, {
-    label: 'Insert Cell Above',
+  commands.addCommand(CommandIDs.mergeAbove, {
+    label: trans.__('Merge Cell Above'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        return NotebookActions.mergeCells(current.content, true);
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.mergeBelow, {
+    label: trans.__('Merge Cell Below'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        return NotebookActions.mergeCells(current.content, false);
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.insertAbove, {
+    label: trans.__('Insert Cell Above'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.insertAbove(current.content);
@@ -1547,20 +2211,22 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.insertBelow, {
-    label: 'Insert Cell Below',
+    label: trans.__('Insert Cell Below'),
+    caption: trans.__('Insert a cell below'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.insertBelow(current.content);
       }
     },
+    icon: args => (args.toolbar ? addIcon : undefined),
     isEnabled
   });
   commands.addCommand(CommandIDs.selectAbove, {
-    label: 'Select Cell Above',
+    label: trans.__('Select Cell Above'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.selectAbove(current.content);
@@ -1569,9 +2235,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.selectBelow, {
-    label: 'Select Cell Below',
+    label: trans.__('Select Cell Below'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.selectBelow(current.content);
@@ -1579,10 +2245,58 @@ function addCommands(
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.extendAbove, {
-    label: 'Extend Selection Above',
+  commands.addCommand(CommandIDs.insertHeadingAbove, {
+    label: trans.__('Insert Heading Above Current Heading'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        return NotebookActions.insertSameLevelHeadingAbove(current.content);
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.insertHeadingBelow, {
+    label: trans.__('Insert Heading Below Current Heading'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        return NotebookActions.insertSameLevelHeadingBelow(current.content);
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.selectHeadingAboveOrCollapse, {
+    label: trans.__('Select Heading Above or Collapse Heading'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        return NotebookActions.selectHeadingAboveOrCollapseHeading(
+          current.content
+        );
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.selectHeadingBelowOrExpand, {
+    label: trans.__('Select Heading Below or Expand Heading'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        return NotebookActions.selectHeadingBelowOrExpandHeading(
+          current.content
+        );
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.extendAbove, {
+    label: trans.__('Extend Selection Above'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.extendSelectionAbove(current.content);
@@ -1591,9 +2305,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.extendTop, {
-    label: 'Extend Selection to Top',
+    label: trans.__('Extend Selection to Top'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.extendSelectionAbove(current.content, true);
@@ -1602,9 +2316,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.extendBelow, {
-    label: 'Extend Selection Below',
+    label: trans.__('Extend Selection Below'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.extendSelectionBelow(current.content);
@@ -1613,9 +2327,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.extendBottom, {
-    label: 'Extend Selection to Bottom',
+    label: trans.__('Extend Selection to Bottom'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.extendSelectionBelow(current.content, true);
@@ -1624,9 +2338,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.selectAll, {
-    label: 'Select All Cells',
+    label: trans.__('Select All Cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.selectAll(current.content);
@@ -1635,9 +2349,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.deselectAll, {
-    label: 'Deselect All Cells',
+    label: trans.__('Deselect All Cells'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.deselectAll(current.content);
@@ -1646,9 +2360,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.moveUp, {
-    label: 'Move Cells Up',
+    label: trans.__('Move Cells Up'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.moveUp(current.content);
@@ -1657,9 +2371,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.moveDown, {
-    label: 'Move Cells Down',
+    label: trans.__('Move Cells Down'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.moveDown(current.content);
@@ -1668,20 +2382,33 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.toggleAllLines, {
-    label: 'Toggle All Line Numbers',
+    label: trans.__('Show Line Numbers'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.toggleAllLineNumbers(current.content);
       }
     },
-    isEnabled
+    isEnabled,
+    isToggled: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, { ...args, activate: false });
+      if (current) {
+        const config = current.content.editorConfig;
+        return !!(
+          config.code.lineNumbers &&
+          config.markdown.lineNumbers &&
+          config.raw.lineNumbers
+        );
+      } else {
+        return false;
+      }
+    }
   });
   commands.addCommand(CommandIDs.commandMode, {
-    label: 'Enter Command Mode',
+    label: trans.__('Enter Command Mode'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         current.content.mode = 'command';
@@ -1690,9 +2417,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.editMode, {
-    label: 'Enter Edit Mode',
+    label: trans.__('Enter Edit Mode'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         current.content.mode = 'edit';
@@ -1701,9 +2428,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.undoCellAction, {
-    label: 'Undo Cell Operation',
+    label: trans.__('Undo Cell Operation'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.undo(current.content);
@@ -1712,9 +2439,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.redoCellAction, {
-    label: 'Redo Cell Operation',
+    label: trans.__('Redo Cell Operation'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.redo(current.content);
@@ -1722,21 +2449,55 @@ function addCommands(
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.changeKernel, {
-    label: 'Change Kernel…',
+  commands.addCommand(CommandIDs.redo, {
+    label: trans.__('Redo'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
-        return sessionDialogs!.selectKernel(current.context.sessionContext);
+        return current.content.activeCell?.editor.redo();
+      }
+    }
+  });
+  commands.addCommand(CommandIDs.undo, {
+    label: trans.__('Undo'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        return current.content.activeCell?.editor.undo();
+      }
+    }
+  });
+  commands.addCommand(CommandIDs.changeKernel, {
+    label: trans.__('Change Kernel…'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+
+      if (current) {
+        return sessionDialogs!.selectKernel(
+          current.context.sessionContext,
+          translator
+        );
+      }
+    },
+    isEnabled
+  });
+  commands.addCommand(CommandIDs.getKernel, {
+    label: trans.__('Get Kernel'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, { activate: false, ...args });
+
+      if (current) {
+        return current.sessionContext.session?.kernel;
       }
     },
     isEnabled
   });
   commands.addCommand(CommandIDs.reconnectToKernel, {
-    label: 'Reconnect To Kernel',
+    label: trans.__('Reconnect to Kernel'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (!current) {
         return;
@@ -1750,80 +2511,10 @@ function addCommands(
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.createOutputView, {
-    label: 'Create New View for Output',
-    execute: async args => {
-      let cell: CodeCell | undefined;
-      let current: NotebookPanel | undefined | null;
-      // If we are given a notebook path and cell index, then
-      // use that, otherwise use the current active cell.
-      let path = args.path as string | undefined | null;
-      let index = args.index as number | undefined | null;
-      if (path && index !== undefined && index !== null) {
-        current = docManager.findWidget(path, FACTORY) as NotebookPanel;
-        if (!current) {
-          return;
-        }
-      } else {
-        current = getCurrent({ ...args, activate: false });
-        if (!current) {
-          return;
-        }
-        cell = current.content.activeCell as CodeCell;
-        index = current.content.activeCellIndex;
-      }
-      // Create a MainAreaWidget
-      const content = new Private.ClonedOutputArea({
-        notebook: current,
-        cell,
-        index
-      });
-      const widget = new MainAreaWidget({ content });
-      current.context.addSibling(widget, {
-        ref: current.id,
-        mode: 'split-bottom'
-      });
-
-      const updateCloned = () => {
-        void clonedOutputs.save(widget);
-      };
-
-      current.context.pathChanged.connect(updateCloned);
-      current.context.model?.cells.changed.connect(updateCloned);
-
-      // Add the cloned output to the output widget tracker.
-      void clonedOutputs.add(widget);
-
-      // Remove the output view if the parent notebook is closed.
-      current.content.disposed.connect(() => {
-        current!.context.pathChanged.disconnect(updateCloned);
-        current!.context.model?.cells.changed.disconnect(updateCloned);
-        widget.dispose();
-      });
-    },
-    isEnabled: isEnabledAndSingleSelected
-  });
-  commands.addCommand(CommandIDs.createConsole, {
-    label: 'New Console for Notebook',
-    execute: args => {
-      const current = getCurrent({ ...args, activate: false });
-
-      if (!current) {
-        return;
-      }
-
-      return Private.createConsole(
-        commands,
-        current,
-        args['activate'] as boolean
-      );
-    },
-    isEnabled
-  });
   commands.addCommand(CommandIDs.markdown1, {
-    label: 'Change to Heading 1',
+    label: trans.__('Change to Heading 1'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.setMarkdownHeader(current.content, 1);
@@ -1832,9 +2523,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.markdown2, {
-    label: 'Change to Heading 2',
+    label: trans.__('Change to Heading 2'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.setMarkdownHeader(current.content, 2);
@@ -1843,9 +2534,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.markdown3, {
-    label: 'Change to Heading 3',
+    label: trans.__('Change to Heading 3'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.setMarkdownHeader(current.content, 3);
@@ -1854,9 +2545,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.markdown4, {
-    label: 'Change to Heading 4',
+    label: trans.__('Change to Heading 4'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.setMarkdownHeader(current.content, 4);
@@ -1865,9 +2556,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.markdown5, {
-    label: 'Change to Heading 5',
+    label: trans.__('Change to Heading 5'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.setMarkdownHeader(current.content, 5);
@@ -1876,9 +2567,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.markdown6, {
-    label: 'Change to Heading 6',
+    label: trans.__('Change to Heading 6'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.setMarkdownHeader(current.content, 6);
@@ -1887,9 +2578,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.hideCode, {
-    label: 'Collapse Selected Code',
+    label: trans.__('Collapse Selected Code'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.hideCode(current.content);
@@ -1898,9 +2589,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.showCode, {
-    label: 'Expand Selected Code',
+    label: trans.__('Expand Selected Code'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.showCode(current.content);
@@ -1909,9 +2600,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.hideAllCode, {
-    label: 'Collapse All Code',
+    label: trans.__('Collapse All Code'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.hideAllCode(current.content);
@@ -1920,9 +2611,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.showAllCode, {
-    label: 'Expand All Code',
+    label: trans.__('Expand All Code'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.showAllCode(current.content);
@@ -1931,9 +2622,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.hideOutput, {
-    label: 'Collapse Selected Outputs',
+    label: trans.__('Collapse Selected Outputs'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.hideOutput(current.content);
@@ -1942,9 +2633,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.showOutput, {
-    label: 'Expand Selected Outputs',
+    label: trans.__('Expand Selected Outputs'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.showOutput(current.content);
@@ -1953,9 +2644,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.hideAllOutputs, {
-    label: 'Collapse All Outputs',
+    label: trans.__('Collapse All Outputs'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.hideAllOutputs(current.content);
@@ -1963,10 +2654,51 @@ function addCommands(
     },
     isEnabled
   });
-  commands.addCommand(CommandIDs.showAllOutputs, {
-    label: 'Expand All Outputs',
+
+  commands.addCommand(CommandIDs.toggleRenderSideBySideCurrentNotebook, {
+    label: trans.__('Render Side-by-Side'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+      if (current) {
+        if (current.content.renderingLayout === 'side-by-side') {
+          return NotebookActions.renderDefault(current.content);
+        }
+        return NotebookActions.renderSideBySide(current.content);
+      }
+    },
+    isEnabled,
+    isToggled: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, { ...args, activate: false });
+      if (current) {
+        return current.content.renderingLayout === 'side-by-side';
+      } else {
+        return false;
+      }
+    }
+  });
+
+  commands.addCommand(CommandIDs.setSideBySideRatio, {
+    label: trans.__('Set side-by-side ratio'),
+    execute: args => {
+      InputDialog.getNumber({
+        title: trans.__('Width of the output in side-by-side mode'),
+        value: 1
+      })
+        .then(result => {
+          if (result.value) {
+            document.documentElement.style.setProperty(
+              '--jp-side-by-side-output-size',
+              `${result.value}fr`
+            );
+          }
+        })
+        .catch(console.error);
+    }
+  });
+  commands.addCommand(CommandIDs.showAllOutputs, {
+    label: trans.__('Expand All Outputs'),
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.showAllOutputs(current.content);
@@ -1975,9 +2707,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.enableOutputScrolling, {
-    label: 'Enable Scrolling for Outputs',
+    label: trans.__('Enable Scrolling for Outputs'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.enableOutputScrolling(current.content);
@@ -1986,9 +2718,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.disableOutputScrolling, {
-    label: 'Disable Scrolling for Outputs',
+    label: trans.__('Disable Scrolling for Outputs'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.disableOutputScrolling(current.content);
@@ -1997,9 +2729,9 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.selectLastRunCell, {
-    label: 'Select current running or last run cell',
+    label: trans.__('Select current running or last run cell'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
 
       if (current) {
         return NotebookActions.selectLastRunCell(current.content);
@@ -2008,15 +2740,43 @@ function addCommands(
     isEnabled
   });
   commands.addCommand(CommandIDs.replaceSelection, {
-    label: 'Replace Selection in Notebook Cell',
+    label: trans.__('Replace Selection in Notebook Cell'),
     execute: args => {
-      const current = getCurrent(args);
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
       const text: string = (args['text'] as string) || '';
       if (current) {
         return NotebookActions.replaceSelection(current.content, text);
       }
     },
     isEnabled
+  });
+  commands.addCommand(CommandIDs.toggleCollapseCmd, {
+    label: 'Toggle Collapse Notebook Heading',
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+      if (current) {
+        return NotebookActions.toggleCurrentHeadingCollapse(current.content);
+      }
+    },
+    isEnabled: isEnabledAndHeadingSelected
+  });
+  commands.addCommand(CommandIDs.collapseAllCmd, {
+    label: 'Collapse All Headings',
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+      if (current) {
+        return NotebookActions.collapseAllHeadings(current.content);
+      }
+    }
+  });
+  commands.addCommand(CommandIDs.expandAllCmd, {
+    label: 'Expand All Headings',
+    execute: args => {
+      const current = getCurrent(tracker as unknown as INotebookTracker, shell, args);
+      if (current) {
+        return NotebookActions.expandAllHeadings(current.content);
+      }
+    }
   });
 }
 
@@ -2025,9 +2785,11 @@ function addCommands(
  */
 function populatePalette(
   palette: ICommandPalette,
-  services: ServiceManager
+  translator: ITranslator
 ): void {
-  let category = 'Notebook Operations';
+  const trans = translator.load('jupyterlab');
+  let category = trans.__('Notebook Operations');
+
   [
     CommandIDs.interrupt,
     CommandIDs.restart,
@@ -2048,7 +2810,10 @@ function populatePalette(
     CommandIDs.reconnectToKernel,
     CommandIDs.createConsole,
     CommandIDs.closeAndShutdown,
-    CommandIDs.trust
+    CommandIDs.trust,
+    CommandIDs.toggleCollapseCmd,
+    CommandIDs.collapseAllCmd,
+    CommandIDs.expandAllCmd
   ].forEach(command => {
     palette.addItem({ command, category });
   });
@@ -2059,7 +2824,7 @@ function populatePalette(
     args: { isPalette: true }
   });
 
-  category = 'Notebook Cell Operations';
+  category = trans.__('Notebook Cell Operations');
   [
     CommandIDs.run,
     CommandIDs.runAndAdvance,
@@ -2077,10 +2842,16 @@ function populatePalette(
     CommandIDs.deleteCell,
     CommandIDs.split,
     CommandIDs.merge,
+    CommandIDs.mergeAbove,
+    CommandIDs.mergeBelow,
     CommandIDs.insertAbove,
     CommandIDs.insertBelow,
     CommandIDs.selectAbove,
     CommandIDs.selectBelow,
+    CommandIDs.selectHeadingAboveOrCollapse,
+    CommandIDs.selectHeadingBelowOrExpand,
+    CommandIDs.insertHeadingAbove,
+    CommandIDs.insertHeadingBelow,
     CommandIDs.extendAbove,
     CommandIDs.extendTop,
     CommandIDs.extendBelow,
@@ -2103,6 +2874,8 @@ function populatePalette(
     CommandIDs.showOutput,
     CommandIDs.hideAllOutputs,
     CommandIDs.showAllOutputs,
+    CommandIDs.toggleRenderSideBySideCurrentNotebook,
+    CommandIDs.setSideBySideRatio,
     CommandIDs.enableOutputScrolling,
     CommandIDs.disableOutputScrolling
   ].forEach(command => {
@@ -2114,277 +2887,93 @@ function populatePalette(
  * Populates the application menus for the notebook.
  */
 function populateMenus(
-  app: JupyterFrontEnd,
   mainMenu: IMainMenu,
   tracker: INotebookTracker,
-  services: ServiceManager,
-  palette: ICommandPalette | null,
-  sessionDialogs: ISessionContextDialogs | null
+  sessionDialogs: ISessionContextDialogs | null,
+  isEnabled: () => boolean
 ): void {
-  let { commands } = app;
-
   sessionDialogs = sessionDialogs || sessionContextDialogs;
 
   // Add undo/redo hooks to the edit menu.
-  mainMenu.editMenu.undoers.add({
-    // FIXME as unknown
-    tracker: tracker as unknown as NotebookTracker,
-    undo: widget => {
-      widget.content.activeCell?.editor.undo();
-    },
-    redo: widget => {
-      widget.content.activeCell?.editor.redo();
-    }
-  } as IEditMenu.IUndoer<NotebookPanel>);
-
-  // Add a clearer to the edit menu
-  mainMenu.editMenu.clearers.add({
-    // FIXME as unknown
-    tracker: tracker as unknown as NotebookTracker,
-    noun: 'Outputs',
-    pluralNoun: 'Outputs',
-    clearCurrent: (current: NotebookPanel) => {
-      return NotebookActions.clearOutputs(current.content);
-    },
-    clearAll: (current: NotebookPanel) => {
-      return NotebookActions.clearAllOutputs(current.content);
-    }
-  } as IEditMenu.IClearer<NotebookPanel>);
-
-  // Add new notebook creation to the file menu.
-  mainMenu.fileMenu.newMenu.addGroup([{ command: CommandIDs.createNew }], 10);
-
-  // Add a close and shutdown command to the file menu.
-  mainMenu.fileMenu.closeAndCleaners.add({
-    // FIXME as unknown
-    tracker: tracker as unknown as NotebookTracker,
-    action: 'Shutdown',
-    name: 'Notebook',
-    closeAndCleanup: (current: NotebookPanel) => {
-      const fileName = current.title.label;
-      return showDialog({
-        title: 'Shut down the notebook?',
-        body: `Are you sure you want to close "${fileName}"?`,
-        buttons: [Dialog.cancelButton(), Dialog.warnButton()]
-      }).then(result => {
-        if (result.button.accept) {
-          return current.context.sessionContext.shutdown().then(() => {
-            current.dispose();
-          });
-        }
-      });
-    }
-  } as IFileMenu.ICloseAndCleaner<NotebookPanel>);
-
-  // Add a notebook group to the File menu.
-  let exportTo = new Menu({ commands });
-  exportTo.title.label = 'Export Notebook As…';
-  void services.nbconvert.getExportFormats().then(response => {
-    if (response) {
-      // Convert export list to palette and menu items.
-      const formatList = Object.keys(response);
-      formatList.forEach(function(key) {
-        let capCaseKey = key[0].toUpperCase() + key.substr(1);
-        let labelStr = FORMAT_LABEL[key] ? FORMAT_LABEL[key] : capCaseKey;
-        let args = {
-          format: key,
-          label: labelStr,
-          isPalette: true
-        };
-        if (FORMAT_EXCLUDE.indexOf(key) === -1) {
-          exportTo.addItem({
-            command: CommandIDs.exportToFormat,
-            args: args
-          });
-          if (palette) {
-            const category = 'Notebook Operations';
-            palette.addItem({
-              command: CommandIDs.exportToFormat,
-              category,
-              args
-            });
-          }
-        }
-      });
-      const fileGroup = [
-        { type: 'submenu', submenu: exportTo } as Menu.IItemOptions
-      ];
-      mainMenu.fileMenu.addGroup(fileGroup, 10);
-    }
+  mainMenu.editMenu.undoers.redo.add({
+    id: CommandIDs.redo,
+    isEnabled
+  });
+  mainMenu.editMenu.undoers.undo.add({
+    id: CommandIDs.undo,
+    isEnabled
   });
 
-  // Add a kernel user to the Kernel menu
-  mainMenu.kernelMenu.kernelUsers.add({
-    // FIXME as unknown
-    tracker: tracker as unknown as NotebookTracker,
-    interruptKernel: current => {
-      let kernel = current.sessionContext.session?.kernel;
-      if (kernel) {
-        return kernel.interrupt();
-      }
-      return Promise.resolve(void 0);
-    },
-    noun: 'All Outputs',
-    restartKernel: current => sessionDialogs!.restart(current.sessionContext),
-    restartKernelAndClear: current => {
-      return sessionDialogs!.restart(current.sessionContext).then(restarted => {
-        if (restarted) {
-          NotebookActions.clearAllOutputs(current.content);
-        }
-        return restarted;
-      });
-    },
-    changeKernel: current =>
-      sessionDialogs!.selectKernel(current.sessionContext),
-    shutdownKernel: current => current.sessionContext.shutdown()
-  } as IKernelMenu.IKernelUser<NotebookPanel>);
+  // Add a clearer to the edit menu
+  mainMenu.editMenu.clearers.clearAll.add({
+    id: CommandIDs.clearAllOutputs,
+    isEnabled
+  });
+  mainMenu.editMenu.clearers.clearCurrent.add({
+    id: CommandIDs.clearOutputs,
+    isEnabled
+  });
 
   // Add a console creator the the Kernel menu
   mainMenu.fileMenu.consoleCreators.add({
-    // FIXME as unknown
-    tracker: tracker as unknown as NotebookTracker,
-    name: 'Notebook',
-    createConsole: current => Private.createConsole(commands, current, true)
-  } as IFileMenu.IConsoleCreator<NotebookPanel>);
-
-  // Add some commands to the application view menu.
-  const collapseGroup = [
-    CommandIDs.hideCode,
-    CommandIDs.hideOutput,
-    CommandIDs.hideAllCode,
-    CommandIDs.hideAllOutputs
-  ].map(command => {
-    return { command };
+    id: CommandIDs.createConsole,
+    isEnabled
   });
-  mainMenu.viewMenu.addGroup(collapseGroup, 10);
 
-  const expandGroup = [
-    CommandIDs.showCode,
-    CommandIDs.showOutput,
-    CommandIDs.showAllCode,
-    CommandIDs.showAllOutputs
-  ].map(command => {
-    return { command };
+  // Add a close and shutdown command to the file menu.
+  mainMenu.fileMenu.closeAndCleaners.add({
+    id: CommandIDs.closeAndShutdown,
+    isEnabled
   });
-  mainMenu.viewMenu.addGroup(expandGroup, 11);
+
+  // Add a kernel user to the Kernel menu
+  mainMenu.kernelMenu.kernelUsers.changeKernel.add({
+    id: CommandIDs.changeKernel,
+    isEnabled
+  });
+  mainMenu.kernelMenu.kernelUsers.clearWidget.add({
+    id: CommandIDs.clearAllOutputs,
+    isEnabled
+  });
+  mainMenu.kernelMenu.kernelUsers.interruptKernel.add({
+    id: CommandIDs.interrupt,
+    isEnabled
+  });
+  mainMenu.kernelMenu.kernelUsers.reconnectToKernel.add({
+    id: CommandIDs.reconnectToKernel,
+    isEnabled
+  });
+  mainMenu.kernelMenu.kernelUsers.restartKernel.add({
+    id: CommandIDs.restart,
+    isEnabled
+  });
+  mainMenu.kernelMenu.kernelUsers.shutdownKernel.add({
+    id: CommandIDs.shutdown,
+    isEnabled
+  });
 
   // Add an IEditorViewer to the application view menu
-  mainMenu.viewMenu.editorViewers.add({
-    // FIXME as unknown
-    tracker: tracker as unknown as NotebookTracker,
-    toggleLineNumbers: widget => {
-      NotebookActions.toggleAllLineNumbers(widget.content);
-    },
-    lineNumbersToggled: widget => {
-      const config = widget.content.editorConfig;
-      return !!(
-        config.code.lineNumbers &&
-        config.markdown.lineNumbers &&
-        config.raw.lineNumbers
-      );
-    }
-  } as IViewMenu.IEditorViewer<NotebookPanel>);
+  mainMenu.viewMenu.editorViewers.toggleLineNumbers.add({
+    id: CommandIDs.toggleAllLines,
+    isEnabled
+  });
 
   // Add an ICodeRunner to the application run menu
-  mainMenu.runMenu.codeRunners.add({
-    // FIXME as unknown
-    tracker: tracker as unknown as NotebookTracker,
-    noun: 'Cells',
-    run: current => {
-      const { context, content } = current;
-      return NotebookActions.runAndAdvance(
-        content,
-        context.sessionContext
-      ).then(() => void 0);
-    },
-    runAll: current => {
-      const { context, content } = current;
-      return NotebookActions.runAll(content, context.sessionContext).then(
-        () => void 0
-      );
-    },
-    restartAndRunAll: current => {
-      const { context, content } = current;
-      return sessionDialogs!.restart(context.sessionContext).then(restarted => {
-        if (restarted) {
-          void NotebookActions.runAll(content, context.sessionContext);
-        }
-        return restarted;
-      });
-    }
-  } as IRunMenu.ICodeRunner<NotebookPanel>);
-
-  // Add a renderAllMarkdown group to the run menu.
-  const renderAllMarkdown = [CommandIDs.renderAllMarkdown].map(command => {
-    return { command };
+  mainMenu.runMenu.codeRunners.restart.add({
+    id: CommandIDs.restart,
+    isEnabled
   });
-  // Add a run+insert and run+don't advance group to the run menu.
-  const runExtras = [
-    CommandIDs.runAndInsert,
-    CommandIDs.run,
-    CommandIDs.runInConsole
-  ].map(command => {
-    return { command };
+  mainMenu.runMenu.codeRunners.run.add({
+    id: CommandIDs.runAndAdvance,
+    isEnabled
   });
-
-  // Add a run all above/below group to the run menu.
-  const runAboveBelowGroup = [
-    CommandIDs.runAllAbove,
-    CommandIDs.runAllBelow
-  ].map(command => {
-    return { command };
-  });
-
-  // Add commands to the application edit menu.
-  const undoCellActionGroup = [
-    CommandIDs.undoCellAction,
-    CommandIDs.redoCellAction
-  ].map(command => {
-    return { command };
-  });
-
-  const copyGroup = [
-    CommandIDs.cut,
-    CommandIDs.copy,
-    CommandIDs.pasteBelow,
-    CommandIDs.pasteAbove,
-    CommandIDs.pasteAndReplace
-  ].map(command => {
-    return { command };
-  });
-
-  const selectGroup = [CommandIDs.selectAll, CommandIDs.deselectAll].map(
-    command => {
-      return { command };
-    }
-  );
-
-  const splitMergeGroup = [CommandIDs.split, CommandIDs.merge].map(command => {
-    return { command };
-  });
-
-  const moveCellsGroup = [CommandIDs.moveUp, CommandIDs.moveDown].map(
-    command => {
-      return { command };
-    }
-  );
-
-  mainMenu.editMenu.addGroup(undoCellActionGroup, 4);
-  mainMenu.editMenu.addGroup(copyGroup, 5);
-  mainMenu.editMenu.addGroup([{ command: CommandIDs.deleteCell }], 6);
-  mainMenu.editMenu.addGroup(selectGroup, 7);
-  mainMenu.editMenu.addGroup(moveCellsGroup, 8);
-  mainMenu.editMenu.addGroup(splitMergeGroup, 9);
-  mainMenu.runMenu.addGroup(runExtras, 10);
-  mainMenu.runMenu.addGroup(runAboveBelowGroup, 11);
-  mainMenu.runMenu.addGroup(renderAllMarkdown, 12);
+  mainMenu.runMenu.codeRunners.runAll.add({ id: CommandIDs.runAll, isEnabled });
 
   // Add kernel information to the application help menu.
-  mainMenu.helpMenu.kernelUsers.add({
-    // FIXME as unknown
-    tracker: tracker as unknown as NotebookTracker,
-    getKernel: current => current.sessionContext.session?.kernel
-  } as IHelpMenu.IKernelUser<NotebookPanel>);
+  mainMenu.helpMenu.getKernel.add({
+    id: CommandIDs.getKernel,
+    isEnabled
+  });
 }
 
 /**
@@ -2415,11 +3004,91 @@ namespace Private {
   }
 
   /**
+   * Whether there is an active notebook.
+   */
+  export function isEnabled(
+    shell: JupyterFrontEnd.IShell,
+    tracker: INotebookTracker
+  ): boolean {
+    return (
+      tracker.currentWidget !== null &&
+      tracker.currentWidget === shell.currentWidget
+    );
+  }
+
+  /**
+   * Whether there is an notebook active, with a single selected cell.
+   */
+  export function isEnabledAndSingleSelected(
+    shell: JupyterFrontEnd.IShell,
+    tracker: INotebookTracker
+  ): boolean {
+    if (!Private.isEnabled(shell, tracker)) {
+      return false;
+    }
+    const { content } = tracker.currentWidget!;
+    const index = content.activeCellIndex;
+    // If there are selections that are not the active cell,
+    // this command is confusing, so disable it.
+    for (let i = 0; i < content.widgets.length; ++i) {
+      if (content.isSelected(content.widgets[i]) && i !== index) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Whether there is an notebook active, with a single selected cell.
+   */
+  export function isEnabledAndHeadingSelected(
+    shell: JupyterFrontEnd.IShell,
+    tracker: INotebookTracker
+  ): boolean {
+    if (!Private.isEnabled(shell, tracker)) {
+      return false;
+    }
+    const { content } = tracker.currentWidget!;
+    const index = content.activeCellIndex;
+    if (!(content.activeCell instanceof MarkdownCell)) {
+      return false;
+    }
+    // If there are selections that are not the active cell,
+    // this command is confusing, so disable it.
+    for (let i = 0; i < content.widgets.length; ++i) {
+      if (content.isSelected(content.widgets[i]) && i !== index) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The default Export To ... formats and their human readable labels.
+   */
+  export function getFormatLabels(
+    translator: ITranslator
+  ): { [k: string]: string } {
+    translator = translator || nullTranslator;
+    const trans = translator.load('jupyterlab');
+    return {
+      html: trans.__('HTML'),
+      latex: trans.__('LaTeX'),
+      markdown: trans.__('Markdown'),
+      pdf: trans.__('PDF'),
+      rst: trans.__('ReStructured Text'),
+      script: trans.__('Executable Script'),
+      slides: trans.__('Reveal.js Slides')
+    };
+  }
+
+  /**
    * A widget hosting a cloned output area.
    */
   export class ClonedOutputArea extends Panel {
     constructor(options: ClonedOutputArea.IOptions) {
       super();
+      const trans = (options.translator || nullTranslator).load('jupyterlab');
       this._notebook = options.notebook;
       this._index = options.index !== undefined ? options.index : -1;
       this._cell = options.cell || null;
@@ -2427,8 +3096,8 @@ namespace Private {
       this.title.label = 'Output View';
       this.title.icon = notebookIcon;
       this.title.caption = this._notebook.title.label
-        ? `For Notebook: ${this._notebook.title.label}`
-        : 'For Notebook:';
+        ? trans.__('For Notebook: %1', this._notebook.title.label)
+        : trans.__('For Notebook:');
       this.addClass('jp-LinkedOutputView');
 
       // Wait for the notebook to be loaded before
@@ -2490,6 +3159,12 @@ namespace Private {
        * of the cell for when the notebook is loaded.
        */
       index?: number;
+
+      /**
+       * If the cell is not available, provide the index
+       * of the cell for when the notebook is loaded.
+       */
+      translator?: ITranslator;
     }
   }
 }
