@@ -20,7 +20,9 @@ export class NotebookModelFactory
    * Construct a new notebook model factory.
    */
   constructor(options: NotebookModelFactory.IOptions) {
-    let codeCellContentFactory = options.codeCellContentFactory;
+    this._disableDocumentWideUndoRedo =
+      options.disableDocumentWideUndoRedo || false;
+    const codeCellContentFactory = options.codeCellContentFactory;
     this.contentFactory =
       options.contentFactory ||
       new NotebookModel.ContentFactory({ codeCellContentFactory });
@@ -30,6 +32,13 @@ export class NotebookModelFactory
    * The content model factory used by the NotebookModelFactory.
    */
   readonly contentFactory: NotebookModel.IContentFactory;
+
+  /**
+   * Define the disableDocumentWideUndoRedo property.
+   */
+  set disableDocumentWideUndoRedo(disableDocumentWideUndoRedo: boolean) {
+    this._disableDocumentWideUndoRedo = disableDocumentWideUndoRedo;
+  }
 
   /**
    * The name of the model.
@@ -73,9 +82,19 @@ export class NotebookModelFactory
    *
    * @returns A new document model.
    */
-  createNew(languagePreference?: string, modelDB?: IModelDB): INotebookModel {
-    let contentFactory = this.contentFactory;
-    return new NotebookModel({ languagePreference, contentFactory, modelDB });
+  createNew(
+    languagePreference?: string,
+    modelDB?: IModelDB,
+    isInitialized?: boolean
+  ): INotebookModel {
+    const contentFactory = this.contentFactory;
+    return new NotebookModel({
+      languagePreference,
+      contentFactory,
+      modelDB,
+      isInitialized,
+      disableDocumentWideUndoRedo: this._disableDocumentWideUndoRedo
+    });
   }
 
   /**
@@ -84,6 +103,11 @@ export class NotebookModelFactory
   preferredLanguage(path: string): string {
     return '';
   }
+
+  /**
+   * Defines if the document can be undo/redo.
+   */
+  private _disableDocumentWideUndoRedo: boolean;
 
   private _disposed = false;
 }
@@ -96,6 +120,11 @@ export namespace NotebookModelFactory {
    * The options used to initialize a NotebookModelFactory.
    */
   export interface IOptions {
+    /**
+     * Defines if the document can be undo/redo.
+     */
+    disableDocumentWideUndoRedo?: boolean;
+
     /**
      * The factory for code cell content.
      */
