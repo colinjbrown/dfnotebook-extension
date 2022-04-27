@@ -371,7 +371,7 @@ export const commandEditItem: JupyterFrontEndPlugin<void> = {
     // Keep the status item up-to-date with the current notebook.
     tracker.currentChanged.connect(() => {
       const current = tracker.currentWidget;
-      item.model.notebook = current && current.content;
+      item.model.notebook = (current && current.content) as unknown as Notebook;
     });
 
     statusBar.registerStatusItem('dfnotebook-extension:mode-status', {
@@ -451,9 +451,9 @@ export const executionIndicator: JupyterFrontEndPlugin<void> = {
             }
           );
 
-          //@tsconfig-ignore
+
           statusbarItem.model.attachNotebook({
-            content: notebookTracker.currentWidget?.content,
+            content: notebookTracker.currentWidget?.content as unknown as Notebook,
             context: notebookTracker.currentWidget?.sessionContext
           });
 
@@ -625,9 +625,8 @@ export const notebookTrustItem: JupyterFrontEndPlugin<void> = {
     const item = new NotebookTrustStatus(tranlator);
 
     // Keep the status item up-to-date with the current notebook.
-    //@tsconfig-ignore
     tracker.currentChanged.connect(() => {
-      const current = tracker.currentWidget;
+      const current = tracker.currentWidget as unknown as NotebookPanel;
       item.model.notebook = current && current.content;
     });
 
@@ -1006,7 +1005,7 @@ function activateWidgetFactory(
     'executionProgress',
     panel => {
       return ExecutionIndicator.createExecutionIndicatorItem(
-        panel,
+        panel as unknown as NotebookPanel,
         translator,
         settingRegistry?.load(trackerPlugin.id)
       );
@@ -1097,7 +1096,7 @@ function activateClonedOutputs(
           return;
         }
       } else {
-        current = notebookTracker.currentWidget;
+        current = notebookTracker.currentWidget as unknown as NotebookPanel;
         if (!current) {
           return;
         }
@@ -1162,7 +1161,7 @@ function activateCodeConsole(
 
       return Private.createConsole(
         commands,
-        current,
+        current as unknown as NotebookPanel,
         args['activate'] as boolean
       );
     },
@@ -1332,7 +1331,7 @@ function activateCopyOutput(
   app.commands.addCommand(CommandIDs.copyToClipboard, {
     label: trans.__('Copy Output to Clipboard'),
     execute: args => {
-      const cell = tracker.currentWidget?.content.activeCell as CodeCell;
+      const cell = tracker.currentWidget?.content.activeCell as unknown as CodeCell;
 
       if (cell == null) {
         return;
@@ -1383,7 +1382,7 @@ function activateNotebookHandler(
   const tracker = new NotebookTracker({ namespace: 'notebook' });
 
   const isEnabled = (): boolean => {
-    return Private.isEnabled(shell as unknown as INotebookTracker, tracker);
+    return Private.isEnabled(shell as unknown as ILabShell, tracker as unknown as INotebookTracker);
   };
 
   // Fetch settings if possible.
@@ -1650,7 +1649,7 @@ function activateNotebookHandler(
     });
   }
 
-  return tracker;
+  return tracker as unknown as INotebookTracker;
 }
 
 /**
@@ -1715,10 +1714,11 @@ function activateNotebookCompleterService(
       manager.updateCompleter(newCompleterContext).catch(console.error);
     });
   };
+  //@ts-ignore
   notebooks.widgetAdded.connect(updateCompleter);
   manager.activeProvidersChanged.connect(() => {
     notebooks.forEach(panel => {
-      updateCompleter(undefined, panel).catch(e => console.error(e));
+      updateCompleter(undefined, panel as unknown as NotebookPanel).catch(e => console.error(e));
     });
   });
 }
@@ -1736,7 +1736,7 @@ function getCurrent(
     shell.activateById(widget.id);
   }
 
-  return widget;
+  return widget as unknown as NotebookPanel;
 }
 
 /**
@@ -1775,7 +1775,7 @@ function addCommands(
 
   // Set up signal handler to keep the collapse state consistent
   tracker.currentChanged.connect(
-    (sender: INotebookTracker, panel: NotebookPanel) => {
+    (sender: NotebookTracker, panel: NotebookPanel) => {
       if (!panel?.content?.model?.cells) {
         return;
       }
