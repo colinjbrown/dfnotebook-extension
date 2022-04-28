@@ -60,13 +60,11 @@ export class NotebookPanel extends DocumentWidget<Notebook, INotebookModel> {
     this.content.model = this.context.model;
     
     this.context.sessionContext.kernelChanged.connect(
-      // @ts-ignore
       this._onKernelChanged,
       this
     );
 
     this.context.sessionContext.statusChanged.connect(
-      // @ts-ignore
       this._onSessionStatusChanged,
       this
     );
@@ -117,7 +115,6 @@ export class NotebookPanel extends DocumentWidget<Notebook, INotebookModel> {
    * The session context used by the panel.
    */
   get sessionContext(): ISessionContext {
-    // @ts-ignore
     return this.context.sessionContext;
   }
 
