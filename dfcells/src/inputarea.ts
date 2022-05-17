@@ -103,6 +103,13 @@ export class InputArea extends Widget {
   }
 
   /**
+   * Get the rendered input area widget, if any.
+   */
+  get renderedInput(): Widget {
+    return this._rendered;
+  }
+
+  /**
    * Render an input instead of the text editor.
    */
   renderInput(widget: Widget): void {
@@ -175,6 +182,7 @@ export namespace InputArea {
      * Whether to send an update request to the editor when it is shown.
      */
     updateOnShow?: boolean;
+
     /**
      * Whether this input area is a placeholder for future rendering.
      */
