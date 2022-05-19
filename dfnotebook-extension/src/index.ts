@@ -1,12 +1,12 @@
 // Copyright (c) Jupyter Development Team.
 // Distributed under the terms of the Modified BSD License.
+
 /**
  * @packageDocumentation
  * @module dfnotebook-extension
  */
 
 import {
-  ILabShell,
   ILayoutRestorer,
   JupyterFrontEnd,
   JupyterFrontEndPlugin
@@ -95,13 +95,15 @@ import {
   ReadonlyPartialJSONObject,
   UUID
 } from '@lumino/coreutils';
-import { DisposableSet, IDisposable } from '@lumino/disposable';
+import { DisposableSet } from '@lumino/disposable';
 import { Message, MessageLoop } from '@lumino/messaging';
 import { Panel, Widget } from '@lumino/widgets';
 import { logNotebookOutput } from './nboutput';
 
 import { commandEditItem } from '@jupyterlab/notebook-extension';
 import { exportPlugin } from '@jupyterlab/notebook-extension';
+import { executionIndicator } from '@jupyterlab/notebook-extension';
+
 /**
  * The command IDs used by the notebook plugin.
  */
@@ -328,113 +330,6 @@ const tools: JupyterFrontEndPlugin<INotebookTools> = {
   autoStart: true,
   requires: [INotebookTracker, IEditorServices, IStateDB, ITranslator],
   optional: [IPropertyInspectorProvider]
-};
-
-/**
- * A plugin that provides a execution indicator item to the status bar.
- */
-export const executionIndicator: JupyterFrontEndPlugin<void> = {
-  id: '@dfnotebook/dfnotebook-extension:execution-indicator',
-  autoStart: true,
-  requires: [INotebookTracker, ILabShell, ITranslator],
-  optional: [IStatusBar, ISettingRegistry],
-  activate: (
-    app: JupyterFrontEnd,
-    notebookTracker: INotebookTracker,
-    labShell: ILabShell,
-    translator: ITranslator,
-    statusBar: IStatusBar | null,
-    settingRegistry: ISettingRegistry | null
-  ) => {
-    let statusbarItem: ExecutionIndicator;
-    let labShellCurrentChanged: (
-      _: ILabShell,
-      change: ILabShell.IChangedArgs
-    ) => void;
-
-    let statusBarDisposable: IDisposable;
-
-    const updateSettings = (settings: {
-      showOnToolBar: boolean;
-      showProgress: boolean;
-    }): void => {
-      let { showOnToolBar, showProgress } = settings;
-
-      if (!showOnToolBar) {
-        // Status bar mode, only one `ExecutionIndicator` is needed.
-        if (!statusBar) {
-          // Automatically disable if statusbar missing
-          return;
-        }
-
-        if (!statusbarItem?.model) {
-          statusbarItem = new ExecutionIndicator(translator);
-          labShellCurrentChanged = (
-            _: ILabShell,
-            change: ILabShell.IChangedArgs
-          ) => {
-            const { newValue } = change;
-            if (newValue && notebookTracker.has(newValue)) {
-              const panel = newValue as NotebookPanel;
-              statusbarItem.model!.attachNotebook({
-                content: panel.content as unknown as Notebook,
-                context: panel.sessionContext
-              });
-            }
-          };
-          statusBarDisposable = statusBar.registerStatusItem(
-            '@dfnotebook/dfnotebook-extension:execution-indicator',
-            {
-              item: statusbarItem,
-              align: 'left',
-              rank: 3,
-              isActive: () => {
-                const current = labShell.currentWidget;
-                return !!current && notebookTracker.has(current);
-              }
-            }
-          );
-
-          statusbarItem.model.attachNotebook({
-            content: notebookTracker.currentWidget?.content,
-            context: notebookTracker.currentWidget?.sessionContext
-          });
-
-          labShell.currentChanged.connect(labShellCurrentChanged);
-          statusbarItem.disposed.connect(() => {
-            labShell.currentChanged.disconnect(labShellCurrentChanged);
-          });
-        }
-
-        statusbarItem.model.displayOption = {
-          showOnToolBar,
-          showProgress
-        };
-      } else {
-        //Remove old indicator widget on status bar
-        if (statusBarDisposable) {
-          labShell.currentChanged.disconnect(labShellCurrentChanged);
-          statusBarDisposable.dispose();
-        }
-      }
-    };
-
-    if (settingRegistry) {
-      // Indicator is default in tool bar, user needs to specify its
-      // position in settings in order to have indicator on status bar.
-      const loadSettings = settingRegistry.load(trackerPlugin.id);
-      Promise.all([loadSettings, app.restored])
-        .then(([settings]) => {
-          updateSettings(ExecutionIndicator.getSettingValue(settings));
-          settings.changed.connect(sender =>
-            updateSettings(ExecutionIndicator.getSettingValue(sender))
-          );
-        })
-        .catch((reason: Error) => {
-          console.error(reason.message);
-        });
-    }
-  }
 };
 
 
