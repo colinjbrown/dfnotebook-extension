@@ -60,8 +60,7 @@ import {
   NotebookTracker,
   NotebookWidgetFactory,
   StaticNotebook,
-  CommandEditStatus,
-  NotebookTrustStatus,
+  NotebookTrustStatus
 } from '@dfnotebook/dfnotebook';
 import {
   IObservableList,
@@ -101,6 +100,7 @@ import { Message, MessageLoop } from '@lumino/messaging';
 import { Menu, Panel, Widget } from '@lumino/widgets';
 import { logNotebookOutput } from './nboutput';
 
+import { commandEditItem } from '@jupyterlab/notebook-extension';
 /**
  * The command IDs used by the notebook plugin.
  */
@@ -331,46 +331,6 @@ const tools: JupyterFrontEndPlugin<INotebookTools> = {
   autoStart: true,
   requires: [INotebookTracker, IEditorServices, IStateDB, ITranslator],
   optional: [IPropertyInspectorProvider]
-};
-
-/**
- * A plugin providing a CommandEdit status item.
- */
-export const commandEditItem: JupyterFrontEndPlugin<void> = {
-  id: '@dfnotebook/dfnotebook-extension:mode-status',
-  autoStart: true,
-  requires: [INotebookTracker, ITranslator],
-  optional: [IStatusBar],
-  activate: (
-    app: JupyterFrontEnd,
-    tracker: INotebookTracker,
-    translator: ITranslator,
-    statusBar: IStatusBar | null
-  ) => {
-    if (!statusBar) {
-      // Automatically disable if statusbar missing
-      return;
-    }
-    const { shell } = app;
-    const item = new CommandEditStatus(translator);
-
-    // Keep the status item up-to-date with the current notebook.
-    tracker.currentChanged.connect(() => {
-      // FIXME as unknown
-      const current = tracker.currentWidget as unknown as NotebookPanel;
-      item.model.notebook = current && current.content;
-    });
-
-    statusBar.registerStatusItem('@dfnotebook/dfnotebook-extension:mode-status', {
-      item,
-      align: 'right',
-      rank: 4,
-      isActive: () =>
-        !!shell.currentWidget &&
-        !!tracker.currentWidget &&
-        shell.currentWidget === tracker.currentWidget
-    });
-  }
 };
 
 /**
