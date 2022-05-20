@@ -42,13 +42,11 @@ import {
 import * as nbformat from '@jupyterlab/nbformat';
 
 import {
-  INotebookTools,
   INotebookTracker,
   INotebookWidgetFactory
 } from '@jupyterlab/notebook'
 
 import {
-  NotebookTools,
   NotebookActions,
   NotebookModelFactory,
   NotebookPanel,
@@ -59,7 +57,6 @@ import {
   NotebookTrustStatus,
 } from '@dfnotebook/dfnotebook';
 
-import { IPropertyInspectorProvider } from '@jupyterlab/property-inspector';
 
 import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
 
@@ -67,11 +64,9 @@ import { ServiceManager } from '@jupyterlab/services';
 
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
 
-import { IStateDB } from '@jupyterlab/statedb';
-
 import { IStatusBar } from '@jupyterlab/statusbar';
 
-import { buildIcon, notebookIcon } from '@jupyterlab/ui-components';
+import { notebookIcon } from '@jupyterlab/ui-components';
 
 import { ArrayExt } from '@lumino/algorithm';
 
@@ -80,7 +75,6 @@ import { CommandRegistry } from '@lumino/commands';
 import {
   JSONExt,
   JSONObject,
-  JSONValue,
   ReadonlyPartialJSONObject,
   ReadonlyJSONValue,
   UUID
@@ -88,9 +82,9 @@ import {
 
 import { DisposableSet } from '@lumino/disposable';
 
-import { Message, MessageLoop } from '@lumino/messaging';
-
 import { Panel, Menu } from '@lumino/widgets';
+
+import { default as plugins } from '@jupyterlab/notebook-extension';
 
 /**
  * The command IDs used by the notebook plugin.
@@ -247,12 +241,6 @@ const FACTORY = 'Notebook';
 const FORMAT_EXCLUDE = ['notebook', 'python', 'custom'];
 
 /**
- * The exluded Cell Inspector Raw NbConvert Formats
- * (returned from nbconvert's export list)
- */
-const RAW_FORMAT_EXCLUDE = ['pdf', 'slides', 'script', 'notebook', 'custom'];
-
-/**
  * The default Export To ... formats and their human readable labels.
  */
 const FORMAT_LABEL: { [k: string]: string } = {
@@ -297,18 +285,6 @@ const factory: JupyterFrontEndPlugin<NotebookPanel.IContentFactory> = {
     let editorFactory = editorServices.factoryService.newInlineEditor;
     return new NotebookPanel.ContentFactory({ editorFactory });
   }
-};
-
-/**
- * The notebook tools extension.
- */
-const tools: JupyterFrontEndPlugin<INotebookTools> = {
-  activate: activateNotebookTools,
-  provides: INotebookTools,
-  id: 'dfnotebook-extension:tools',
-  autoStart: true,
-  requires: [INotebookTracker, IEditorServices, IStateDB],
-  optional: [IPropertyInspectorProvider]
 };
 
 /**
@@ -406,108 +382,15 @@ const widgetFactoryPlugin: JupyterFrontEndPlugin<NotebookWidgetFactory.IFactory>
   autoStart: true
 };
 
-/**
- * Export the plugins as default.
- */
-const plugins: JupyterFrontEndPlugin<any>[] = [
-  factory,
-  trackerPlugin,
-  tools,
-  commandEditItem,
-  notebookTrustItem,
-  widgetFactoryPlugin
-];
+
+let indices = plugins.map(plug => plug.id);
+console.log(plugins);
+plugins[indices.indexOf('@jupyterlab/notebook-extension:factory')] = factory as JupyterFrontEndPlugin<any>;
+plugins[indices.indexOf('@jupyterlab/notebook-extension:widget-factory')] = widgetFactoryPlugin as JupyterFrontEndPlugin<any>;
+plugins[indices.indexOf('@jupyterlab/notebook-extension:tracker')] = trackerPlugin as JupyterFrontEndPlugin<any>;
+console.log(plugins);
 export default plugins;
 
-/**
- * Activate the notebook tools extension.
- */
-function activateNotebookTools(
-  app: JupyterFrontEnd,
-  tracker: INotebookTracker,
-  editorServices: IEditorServices,
-  state: IStateDB,
-  inspectorProvider: IPropertyInspectorProvider | null
-): INotebookTools {
-  const id = 'notebook-tools';
-  // FIXME as unknown
-  const notebookTools = new NotebookTools({ tracker: tracker as unknown as NotebookTracker });
-  const activeCellTool = new NotebookTools.ActiveCellTool();
-  const slideShow = NotebookTools.createSlideShowSelector();
-  const editorFactory = editorServices.factoryService.newInlineEditor;
-  const cellMetadataEditor = new NotebookTools.CellMetadataEditorTool({
-    editorFactory,
-    collapsed: false
-  });
-  const notebookMetadataEditor = new NotebookTools.NotebookMetadataEditorTool({
-    editorFactory
-  });
-
-  const services = app.serviceManager;
-
-  // Create message hook for triggers to save to the database.
-  const hook = (sender: any, message: Message): boolean => {
-    switch (message.type) {
-      case 'activate-request':
-        void state.save(id, { open: true });
-        break;
-      case 'after-hide':
-      case 'close-request':
-        void state.remove(id);
-        break;
-      default:
-        break;
-    }
-    return true;
-  };
-  let optionsMap: { [key: string]: JSONValue } = {};
-  optionsMap.None = null;
-  void services.nbconvert.getExportFormats().then(response => {
-    if (response) {
-      // convert exportList to palette and menu items
-      const formatList = Object.keys(response);
-      formatList.forEach(function(key) {
-        if (RAW_FORMAT_EXCLUDE.indexOf(key) === -1) {
-          let capCaseKey = key[0].toUpperCase() + key.substr(1);
-          let labelStr = FORMAT_LABEL[key] ? FORMAT_LABEL[key] : capCaseKey;
-          let mimeType = response[key].output_mimetype;
-          optionsMap[labelStr] = mimeType;
-        }
-      });
-      const nbConvert = NotebookTools.createNBConvertSelector(optionsMap);
-      notebookTools.addItem({ tool: nbConvert, section: 'common', rank: 3 });
-    }
-  });
-  notebookTools.title.icon = buildIcon;
-  notebookTools.title.caption = 'Notebook Tools';
-  notebookTools.id = id;
-
-  notebookTools.addItem({ tool: activeCellTool, section: 'common', rank: 1 });
-  notebookTools.addItem({ tool: slideShow, section: 'common', rank: 2 });
-
-  notebookTools.addItem({
-    tool: cellMetadataEditor,
-    section: 'advanced',
-    rank: 1
-  });
-  notebookTools.addItem({
-    tool: notebookMetadataEditor,
-    section: 'advanced',
-    rank: 2
-  });
-
-  MessageLoop.installMessageHook(notebookTools, hook);
-
-  if (inspectorProvider) {
-    tracker.widgetAdded.connect((sender, panel) => {
-      const inspector = inspectorProvider.register(panel);
-      inspector.render(notebookTools);
-    });
-  }
-
-  // FIXME as unknown
-  return notebookTools as unknown as INotebookTools;
-}
 
 /**
  * Activate the notebook widget factory.

@@ -42,6 +42,7 @@
     "@jupyterlab/docmanager": "^2.1.2",
     "@jupyterlab/docregistry": "^2.1.2",
     "@jupyterlab/filebrowser": "^2.1.2",
+    "@jupyterlab/notebook-extension": "^2.1.2",
     "@jupyterlab/launcher": "^2.1.1",
     "@jupyterlab/mainmenu": "^2.1.1",
     "@jupyterlab/nbformat": "^2.1.0",
