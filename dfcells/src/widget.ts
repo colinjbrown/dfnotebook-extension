@@ -85,7 +85,7 @@ import { ResizeHandle } from './resizeHandle';
 
 //import { Graph } from '@dfnotebook/dfgraph';
 //import { Graph } from '../../dfgraph'
-import { DfGraph } from './dfgraph';
+import { DfGraph } from '@dfnotebook/dfgraph';
 //import * as DfGraph from './dfgraph';
 
 /**

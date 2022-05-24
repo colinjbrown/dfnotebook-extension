@@ -3,12 +3,16 @@
   "compilerOptions": {
     "outDir": "lib",
     "rootDir": "src",
-    "types": ["node","graphlib","d3-graphviz"]
+    "types": ["node"]
   },
   "include": ["src/*"],
   "references": [
     {
       "path": "../dfoutputarea",
+      "composite": true
+    },
+    {
+      "path": "../dfgraph",
       "composite": true
     }
   ]

@@ -17,7 +17,8 @@
     "dfoutputarea",
     "dfcells",
     "dfnotebook",
-    "dfnotebook-extension"
+    "dfnotebook-extension",
+    "dfgraph"
   ],
   "private": true,
   "scripts": {

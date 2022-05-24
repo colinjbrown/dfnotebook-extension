@@ -78,6 +78,7 @@
     "codemirror": "^5.55.0",
     "@dfnotebook/dfcells": "^0.1.0-beta",
     "@dfnotebook/dfnotebook": "^0.1.0-beta",
+    "@dfnotebook/dfgraph": "^0.1.0-beta",
     "@types/resize-observer-browser": "^0.1.7"
   },
   "devDependencies": {
