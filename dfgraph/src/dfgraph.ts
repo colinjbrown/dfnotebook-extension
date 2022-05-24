@@ -1,31 +1,8 @@
-// import { JSONExt, JSONObject, JSONValue, PartialJSONObject } from '@lumino/coreutils';
-//
-// import { ISignal, Signal } from '@lumino/signaling';
-//
-// import { IAttachmentsModel, AttachmentsModel } from '@jupyterlab/attachments';
-//
-// import { CodeEditor } from '@jupyterlab/codeeditor';
-//
-// import { IChangedArgs } from '@jupyterlab/coreutils';
-//
-// import * as nbformat from '@jupyterlab/nbformat';
-//
-// import { UUID } from '@lumino/coreutils';
-//
-// import {
-//   IObservableJSON,
-//   IModelDB,
-//   IObservableValue,
-//   ObservableValue,
-//   IObservableMap
-// } from '@jupyterlab/observables';
-//
-// import { IOutputAreaModel, OutputAreaModel } from '@dfnotebook/dfoutputarea';
+import { DepView } from './depview'
 
 //UUID length has been changed need to compensate for that
 const uuid_length = 8;
 
-import { DepView } from './depview'
 
 // @ts-ignore
     declare global {
@@ -313,8 +290,6 @@ class Graph {
     get_cells = function(this:Graph){
         return this.cells;
     };
-
-
 
 }
 
