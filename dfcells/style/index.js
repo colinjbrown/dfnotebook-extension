@@ -16,7 +16,4 @@ import '@jupyterlab/filebrowser/style/index.js';
 import '@jupyterlab/outputarea/style/index.js';
 
 import './base.css';
-import './icon.css';
-import './mdb.css';
-import './depview.css';
 
