@@ -1,5 +1,6 @@
 import { DepView } from './depview';
 import { Minimap } from './minimap';
+import { Comparer } from './compare';
 
 //UUID length has been changed need to compensate for that
 const uuid_length = 8;
@@ -27,8 +28,10 @@ class GraphManager {
     current_graph: string;
     depview: any;
     minimap: any;
+    comparer: any;
     depWidget: any;
     miniWidget: any;
+    compareWidget: any;
     activeID: string;
 
     constructor(graphs?:{}){
@@ -36,6 +39,7 @@ class GraphManager {
         this.current_graph = "None";
         this.depview = new DepView();
         this.minimap = new Minimap();
+        this.comparer = new Comparer();
     }
 
     getProperty = function(prop: string){

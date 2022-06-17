@@ -568,6 +568,90 @@ const MiniMap: JupyterFrontEndPlugin<void> = {
         }
     };
 
+/**
+ * Initialization data for the Graph comparison extension.
+ */
+const GraphCompare: JupyterFrontEndPlugin<void> = {
+  id: 'dfnb-compare',
+  autoStart: true,
+  requires: [ICommandPalette, INotebookTracker],
+  activate: (app: JupyterFrontEnd, palette: ICommandPalette, nbTrackers: INotebookTracker) => {
+
+
+      const content = new ViewerWidget();
+      //Graph Manager maintains the flags on the widgets
+      GraphManager.compareWidget = content;
+      const widget = new MainAreaWidget({ content });
+      widget.id = 'dfnb-compare';
+      widget.title.label = 'Graph Compare';
+      widget.title.closable = true;
+      // Add a div to the panel
+        let panel = document.createElement('div');
+        panel.setAttribute('id','comparer');
+        let svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttributeNS("http://www.w3.org/2000/xmlns/", "xmlns:xlink", "http://www.w3.org/1999/xlink");
+        svg.setAttribute('id','comparer');
+        panel.appendChild(svg);
+        content.node.appendChild(panel);
+
+
+        nbTrackers.widgetAdded.connect((sender,nbPanel) => {
+            const session = nbPanel.sessionContext;
+              session.ready.then(() => {
+                if(session.session?.kernel?.name == 'dfpython3'){
+
+                    const button = new ToolbarButton({
+                        className: 'open-comparer',
+                        label: 'Open Comparer',
+                        onClick: openComparer,
+                        tooltip: 'Opens the Graph Comparison Tool',
+                    });
+                    nbPanel.toolbar.insertItem(10, 'Open Comparer', button);
+                }
+              });
+           });
+
+          function openComparer(){
+          console.log("Attaching right?");
+              if (!widget.isAttached) {
+              console.log("Attached right");
+              console.log(content.is_open);
+                // Attach the widget to the right side work area if it's not there
+                //app.shell.add(widget, 'main');
+                app.shell.add(widget, 'main'
+                ,{
+                    mode: 'split-right',
+                    activate: false
+                });
+                //'right');
+
+                if(!GraphManager.comparer.was_created){
+                    console.log("Active Graph",GraphManager.graphs[GraphManager.current_graph])
+
+                    // Activate the widget
+                    app.shell.activateById(widget.id);
+                    console.log('Activate Comparer');
+                    //GraphManager.minimap.createMiniArea(svg);
+                    //GraphManager.minimap.was_created = true;
+                }
+                else{
+                    console.log("Start comparer building");
+                    //GraphManager.minimap.startMinimapCreation();
+                }
+
+              }
+            }
+
+          // Add an application command
+          const command: string = 'minimap:open';
+          app.commands.addCommand(command, {
+            label: 'Open Comparer',
+            execute: () => openComparer,
+          });
+
+        }
+    };
+
 
 const plugins: JupyterFrontEndPlugin<any>[] = [
   factory,
@@ -575,7 +659,8 @@ const plugins: JupyterFrontEndPlugin<any>[] = [
   trackerPlugin,
   DepViewer,
   MiniMap,
-  GraphManagerPlugin
+  GraphManagerPlugin,
+  GraphCompare
 ]
 export default plugins;
 
