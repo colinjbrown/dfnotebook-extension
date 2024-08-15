@@ -1,5 +1,7 @@
 import { DepView } from './depview';
 import { Minimap } from './minimap';
+// @ts-ignore
+import * as Hashes from 'jshashes';
 
 //UUID length has been changed need to compensate for that
 const uuidLength = 8;
@@ -10,6 +12,8 @@ declare global {
     setAdd(item: T): Array<T>;
   }
 }
+
+var SHA1 = new Hashes.SHA1;
 
 /** @method this is a set addition method for dependencies */
 // @ts-ignore
@@ -59,6 +63,7 @@ class GraphManager {
       return;
     }
     this.currentGraph = graph;
+    this.graphs[this.currentGraph].setManager(this);
     this.depview.dfgraph = this.graphs[graph];
     this.minimap.setGraph(this.graphs[graph]);
     this.updateDepViews(true);
@@ -119,6 +124,16 @@ class GraphManager {
     return this.graphs[this.currentGraph].cellContents[uuid];
   };
 
+  recordCells = function (panel:any) {
+    this.graphs[this.currentGraph].recordCells(panel);
+  }
+
+
+  moveVersion = function (up:boolean){
+    this.graphs[this.currentGraph].moveVersion(up);
+    return;
+  }
+
   updateOrder = function (neworder: any) {
     this.updateActiveGraph();
     if (!(this.currentGraph in this.graphs)) {
@@ -136,6 +151,7 @@ class GraphManager {
   // Utility function to create an empty graph in case one doesn't exist
   createGraph = function (sess:string){
     this.graphs[sess] = new Graph();
+    this.graphs[sess].setManager(this);
   }
 
   /** @method updates all viewers based on if they're open or not */
@@ -179,10 +195,28 @@ export class Graph {
   downstreamLists: any;
   depview: any;
   minimap: any;
+  graphManager: any;
   cellContents: any;
   cellOrder: any;
   states: any;
   executed: any;
+  currVer: any;
+  verIdx: number;
+  historySequence: any;
+  sequence: any;
+  panel: any;
+  
+  cellOrderHistory: any;
+  cellContentsHistory: any;
+  downlinksHistory: any;
+  internalNodesHistory: any;
+  //statesHistory: any;
+  uplinksHistory: any;
+  nodesHistory: any;
+  cellsHistory: any;
+  upstreamListHistory: any;
+  rawCellsHistory: any;
+  // executedHistory: any;
 
   /*
    * Create a graph to contain all inner cell dependencies
@@ -210,12 +244,27 @@ export class Graph {
     let that = this;
     this.wasChanged = false;
     this.cells = cells || [];
+    this.cellsHistory = {};
+    this.cellOrderHistory = {};
+    this.cellContentsHistory = {};
+    this.internalNodesHistory = {};
+    this.nodesHistory = {};
+    this.uplinksHistory = {};
+    this.downlinksHistory = {};
+    this.upstreamListHistory = {};
+    this.rawCellsHistory = [];
+    this.currVer = {};
+    this.verIdx = 0;
     this.nodes = nodes || [];
     this.uplinks = uplinks || {};
     this.downlinks = downlinks || {};
     this.internalNodes = internalNodes || {};
     this.cellContents = cellContents || {};
     this.cellOrder = [];
+    this.historySequence = [];
+    this.sequence = {};
+    
+
     //Cache downstream lists
     this.downstreamLists = allDown || {};
     this.upstreamList = {};
@@ -227,6 +276,16 @@ export class Graph {
         that.executed[uuid] = false;
       });
     }
+  }
+
+  /** @method calculateSha creates a sha out of nested objects */
+  calculateSha = function(object: any){
+    return (SHA1.hex(JSON.stringify(object)));
+  }
+
+
+  setManager = function (manager:any) {
+    this.graphManager = manager;
   }
 
   /** @method updateStale updates the stale states in the graph */
@@ -286,6 +345,12 @@ export class Graph {
     }, true);
   }
 
+  recordCells = function(panel:any){
+    this.panel = panel;
+    //this.rawCellsHistory.push(panel.widgets);
+  }
+
+
   /** @method updateGraph */
   updateGraph(
     this: Graph,
@@ -301,26 +366,160 @@ export class Graph {
     //         if(that.depview.isOpen === false){
     //             that.wasChanged = true;
     //         }
+    //let histSeq : {[key:string]:string} = {};
+    
+
+
+    let oldCells = that.calculateSha(that.cells);
+    let newCells = that.calculateSha(cells);
+    this.sequence['cells'] = oldCells;
+    this.currVer['cells'] = newCells;
+
+    if(oldCells != newCells){
+      that.cellsHistory[oldCells] = that.cells;
+    }
+    that.cellsHistory[newCells] = cells;
     that.cells = cells;
+
+    let oldNodes = that.calculateSha(that.nodes);
+    this.sequence['nodes'] = oldNodes;
+    that.nodesHistory[oldNodes] = structuredClone(that.nodes);
     that.nodes[uuid] = nodes || [];
+    let newNodes = that.calculateSha(that.nodes);
+    this.currVer['nodes'] = newNodes;
+    if(oldNodes != newNodes){
+      that.nodesHistory[newNodes] = that.nodes;
+    }
+
+    let oldUplinks = that.calculateSha(that.uplinks);
+    this.sequence['links'] = oldUplinks;
+    that.uplinksHistory[oldUplinks] = structuredClone(that.uplinks);
+    that.downlinksHistory[oldUplinks] = structuredClone(that.downlinks);
+
     if (uuid in that.uplinks) {
       Object.keys(that.uplinks[uuid]).forEach(function (uplink) {
         that.downlinks[uplink] = [];
       });
     }
+
     that.uplinks[uuid] = uplinks;
+
     that.downlinks[uuid] = downlinks || [];
+
+    let newUplinks = that.calculateSha(that.uplinks);
+
+    that.currVer['links'] = newUplinks;
+    
+    if (oldUplinks != newUplinks){
+      that.uplinksHistory[newUplinks] = structuredClone(that.uplinks);
+      that.downlinksHistory[newUplinks] = structuredClone(that.downlinks);
+    }
+    
+    var oldInt = that.calculateSha(that.internalNodes);
+    that.internalNodesHistory[oldInt] = structuredClone(that.internalNodes);
     that.internalNodes[uuid] = internalNodes;
+    var newInt = that.calculateSha(that.internalNodes);
+    if(oldInt != newInt){
+      that.internalNodesHistory[newInt] = structuredClone(that.internalNodes);
+    }
+    that.sequence['internals'] = oldInt;
+    that.currVer['internals'] = newInt;
+    //Contains logic for updating dependency lists
+    var oldUps = that.calculateSha(that.upstreamList);
+    this.sequence['upslist'] = oldUps;
+    that.cellsHistory[oldUps] = that.upstreamList;
     that.updateDepLists(allUps, uuid);
+    var newUps = that.calculateSha(that.upstreamList);
+    that.currVer['upslist'] = newUps;
+    if(oldUps != newUps){
+      that.upstreamListHistory[newUps] = that.upstreamList;
+    }
+    
+
     that.updateFresh(uuid, false);
     //Shouldn't need the old way of referencing
     //that.minimap.updateEdges();
     //celltoolbar.CellToolbar.rebuildAll();
+    this.historySequence.push(this.sequence);
+    this.verIdx = this.historySequence.length - 1;
+    this.sequence = {};
+    //let rawCells = that.graphManager.tracker.currentWidget.content.cellsArray.map((cell) => cell.node);
+    //let rawSha = that.calculateSha(rawCells);
+    //that.currVer['rawcells'] = rawSha;
+//    this.rawCellsHistory.push(structuredClone(this.graphManager.tracker.currentWidget.content.cellsArray));//.map((cell:any) => cell.node));
+    
+    this.rawCellsHistory.push(this.panel.node.childNodes[1].childNodes[0].children[0].cloneNode(true));
+    this.logHistories();
+  }
+
+  moveVersion = function(up:Boolean){
+    console.log("Moving Version");
+    if(up && this.verIdx < (this.historySequence.length-1)){
+      this.changeVersion(this.verIdx+1);
+    }
+    else if(this.verIdx >= 1){
+      this.changeVersion(this.verIdx-1);
+    }
+
+  }
+
+  changeVersion = function(history:number){
+    console.log("Changing Version");
+    if(history != this.historySequence.length && JSON.stringify(this.currVer) != JSON.stringify(this.historySequence[this.historySequence.length - 1])){
+      this.historySequence.push(this.currVer);
+    }
+    let hist = this.historySequence[history];
+    this.verIdx = history;
+    this.upstreams = this.upstreamListHistory[hist['upslist']];
+    this.uplinks = this.uplinksHistory[hist['links']];
+    this.downlinks = this.downlinksHistory[hist['links']];
+    this.cells = this.cellsHistory[hist['cells']];
+    this.nodes = this.nodesHistory[hist['nodes']];
+    this.cellContents = this.cellContentsHistory[hist['content']];
+    console.log(this.graphManager.tracker);
+    //this.panel.widgets = this.rawCellsHistory[history-1];
+    console.log(document.getElementsByClassName('jp-WindowedPanel-viewport'));
+    console.log(this.rawCellsHistory[history-1]);
+    console.log(this.rawCellsHistory);
+    let viewport = document.getElementsByClassName('jp-WindowedPanel-viewport')[0];
+    viewport.replaceChildren('');
+    viewport.innerHTML = this.rawCellsHistory[history-1].innerHTML;
+    // for (let i = 0; i < this.rawCellsHistory[history-1].children.length; i++){
+    //   let ele = this.rawCellsHistory[history-1].children.item(i).cloneNode();
+    //   viewport.appendChild(ele);
+    // }
+//    this.rawCellsHistory[history-1].children.map((node:any) => viewport.appendChild(node));
+    //document.getElementsByClassName('jp-WindowedPanel-viewport')[0].replaceChildren(this.rawCellsHistory[history-1]);
+    //this.panel.node.childNodes[1].childNodes[0].children[0].children = this.rawCellsHistory[history-1];
+    //this.graphManager.tracker.currentWidget.content.cellsArray = this.rawCellsHistory[history-1];
+    //this.graphManager.tracker.currentWidget.content._viewport.childNodes = this.rawCellsHistory[history-1];
+    this.graphManager.updateDepViews(true);
+
+  }
+
+  logHistories = function(){
+    console.log(this.upstreamListHistory);
+    console.log(this.uplinksHistory);
+    console.log(this.downlinksHistory);
+    console.log(this.cellsHistory);
+    console.log(this.nodesHistory);
+    console.log(this.cellContentsHistory);
+    console.log(this.historySequence);
+    console.log(this.rawCellsHistory);
+    //console.log(changeVersion);
   }
 
   updateOrder = function (neworder: any) {
-    console.log(neworder);
+    //console.log(neworder);
+    let oldOrder = this.calculateSha(this.cellOrder);
+    this.sequence['order'] = oldOrder;
+    let newOrder = this.calculateSha(neworder);
+    this.currVer['order'] = newOrder;
+    this.cellOrderHistory[oldOrder] = structuredClone(this.order);
     this.cellOrder = neworder;
+    if(oldOrder != newOrder){
+      this.cellOrderHistory[newOrder] = structuredClone(this.order);
+    }
   };
 
   /** @method removes a cell entirely from the graph **/
@@ -426,6 +625,15 @@ export class Graph {
 
   /** @method updateCodeDict */
   updateCellContents(this: Graph, cellContents: any) {
+    let oldContent = this.calculateSha(this.cellContents);
+    this.sequence['content'] = oldContent;
+    //this.historySequence[this.historySequence.length - 1]['content'] = oldContent;
+    let newContent = this.calculateSha(cellContents);
+    this.currVer['content'] = newContent;
+    if (oldContent != newContent){
+      this.cellContentsHistory[oldContent] = structuredClone(this.cellContents);
+    }
+    this.cellContentsHistory[newContent] = structuredClone(cellContents);
     this.cellContents = cellContents;
   }
 

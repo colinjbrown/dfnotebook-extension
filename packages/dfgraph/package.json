@@ -169,6 +169,7 @@
     "graphlib": "^2.1.8",
     "graphlib-dot": "^0.6.4",
     "jquery": "^3.6.0",
+    "jshashes": "1.0.8",
     "marked": "^4.0.10",
     "react": "^18.2.0"
   },

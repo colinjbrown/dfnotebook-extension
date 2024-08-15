@@ -803,6 +803,26 @@ export class Minimap {
         .append('div')
         .attr('id', 'table')
         .classed('card', true);
+      let versionselectdown = this.tabular.append('label').classed('switch', true);
+      versionselectdown
+        .append('input')
+        .attr('type', 'button')
+        .on('click', function () {
+          that.dfgraph.moveVersion(false);
+        });
+      versionselectdown.append('span').text('<').classed('button', true).classed('round', true).on('click', function () {
+        that.dfgraph.moveVersion(false);
+      });
+      let versionselectup = this.tabular.append('label').classed('switch', true);
+      versionselectup
+        .append('input')
+        .attr('type', 'button')
+        .on('click', function () {
+          that.dfgraph.moveVersion(true);
+        }).on('click', function () {
+          that.dfgraph.moveVersion(true);
+        });
+      versionselectup.append('span').text('>').classed('button', true).classed('round', true);
       let label = this.tabular.append('label').classed('switch', true);
       label
         .append('input')

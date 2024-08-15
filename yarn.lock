@@ -1800,6 +1800,7 @@ __metadata:
     jest: ^29.2.0
     jest-environment-jsdom: ^29
     jquery: ^3.6.0
+    jshashes: 1.0.8
     marked: ^4.0.10
     npm-run-all: ^4.1.5
     prettier: ^3.0.0
@@ -11448,6 +11449,15 @@ __metadata:
   bin:
     jsesc: bin/jsesc
   checksum: b8b44cbfc92f198ad972fba706ee6a1dfa7485321ee8c0b25f5cedd538dcb20cde3197de16a7265430fce8277a12db066219369e3d51055038946039f6e20e17
+  languageName: node
+  linkType: hard
+
+"jshashes@npm:1.0.8":
+  version: 1.0.8
+  resolution: "jshashes@npm:1.0.8"
+  bin:
+    hashes: ./bin/hashes
+  checksum: 2fed89dc082a545d9dcdd38afb58aa7c74830cfdabcc836c9b4c52445d70f0217c4d2a4d42e6bbdb06f31bac3d1df385daff6beabbcc297a8ff5cca8f11c0bd1
   languageName: node
   linkType: hard
 

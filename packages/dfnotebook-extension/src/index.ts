@@ -428,6 +428,8 @@ const GraphManagerPlugin: JupyterFrontEndPlugin<void> = {
             });
 
             (nbPanel.content as any).model._cells.changed.connect(() =>{
+                GraphManager.recordCells(nbPanel.content);
+                console.log(nbPanel.content);
                 GraphManager.updateOrder((nbPanel.content as any).model.cells.model.cells.map((cell:any) => cell.id));
             });
             nbPanel.content.activeCellChanged.connect(() =>{
@@ -455,6 +457,52 @@ const GraphManagerPlugin: JupyterFrontEndPlugin<void> = {
             GraphManager.updateActiveGraph();
         }
         });
+
+        function moveVUp() {
+          GraphManager.moveVersion(true);
+        }
+      
+        function moveVDown() {
+          
+          GraphManager.moveVersion(false);
+        }
+
+        nbTrackers.widgetAdded.connect((sender,nbPanel) => {
+          const session = nbPanel.sessionContext;
+            session.ready.then(() => {
+              if(session.session?.kernel?.name == 'dfpython3'){
+
+                  const button = new ToolbarButton({
+                      className: 'history:back',
+                      label: '>',
+                      onClick: moveVUp,
+                      tooltip: 'Moves back a version',
+                  });
+                  nbPanel.toolbar.insertItem(10, '>', button);
+
+                  const button2 = new ToolbarButton({
+                    className: 'history:forward',
+                    label: '<',
+                    onClick: moveVDown,
+                    tooltip: 'Moves forward a version',
+                });
+                nbPanel.toolbar.insertItem(10, '<', button2);
+              }
+            });
+         });
+
+        // // Add an application command
+        // const command: string = 'history:back';
+        // app.commands.addCommand(command, {
+        //   label: 'BACK',
+        //   execute: () => GraphManager.moveVersion(false),
+        // });
+  
+        // // Add the command to the palette.
+        // palette.addItem({ command, category: 'Tutorial' });
+
+       
+
 
   }
 
