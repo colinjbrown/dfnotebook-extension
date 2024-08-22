@@ -3,10 +3,16 @@ import $ from 'jquery';
 import '@hpcc-js/wasm';
 import Writer from 'graphlib-dot';
 import { graphviz, GraphvizOptions } from 'd3-graphviz';
+
+//FIXME: No type file provided fix this later
+// @ts-ignore
+import {  BSplineShapeGenerator,  BubbleSet,  PointPath,  ShapeSimplifier} from 'bubblesets';
 import * as GraphLib from 'graphlib';
 
 //UUID length has been changed need to compensate for that
 const uuidLength = 8;
+const size = 10;
+const pad = 5;
 
 const defaultOptions: GraphvizOptions = {
   height: 1600,
@@ -52,6 +58,30 @@ export class DepView {
   tracker: any;
   order: any;
   graphtran: any;
+  // var resultant = [];
+  // var source = [];
+  resultant: any[];
+  source: any[];
+  nb1graph: any[];
+  nb2graph: any[];
+  cellpaths: boolean;
+  cellcolors: boolean;
+  bubbles: any;
+  dgraph: any;
+  reduced: any;
+  isreduced: boolean;
+  url1: any;
+  url2: any;
+  // var bubbles = new BubbleSet();
+  // var nb1graph = [];
+  // var nb2graph = [];
+  // var cellpaths = false;
+  // var cellcolors = true;
+  // var url1 = '';
+  // var url2 = '';
+  // var dgraph = '';
+  // var reduced = '';
+  // var isreduced = false;
 
   constructor(dfgraph?: any, parentdiv?: any, labelstyles?: string) {
     //Flags
@@ -63,6 +93,22 @@ export class DepView {
 
     //Turn on console logs
     this.debugMode = false;
+
+    //Comparison browser
+    this.resultant = [];
+    this.source = [];
+    this.bubbles = new BubbleSet();
+    this.nb1graph = [];
+    this.nb2graph = [];
+    this.cellpaths = false;
+    this.cellcolors = true;
+    this.url1 = '';
+    this.url2 = '';
+    this.dgraph = '';
+    this.reduced = '';
+    this.isreduced = false;
+
+
 
     //Divs and Div related variables
     this.parentdiv = parentdiv || 'div#depview';
@@ -731,6 +777,261 @@ export class DepView {
       that.depdiv.style.display = 'block';
     }
   };
+
+  createPaths = function(){
+
+    let nodepts:{[key: string]: any} = {};
+    let nb2:{[key: string]: any} = {};
+    let onlynb1:{[key: string]: any} = {};
+    let onlynb2:{[key: string]: any} = {};
+    let that = this;
+
+
+    if (that.cellpaths == true){
+        $('.multiple.cluster polygon').map(function(a:any,b:any){
+            let nodename = $(this)?.parent()?.parent()?.attr('id')?.substr(2) || '';
+            let res:{[key: string]: number | string} = {};
+            res['x'] = Math.min(b.points[0].x,b.points[1].x,b.points[2].x);
+            res['y'] = Math.min(b.points[0].y,b.points[1].y,b.points[2].y);
+            res['width'] = Math.max(Math.abs(b.points[0].x - b.points[1].x), Math.abs(b.points[0].x - b.points[2].x));
+            res['height'] = Math.max(Math.abs(b.points[0].y - b.points[1].y), Math.abs(b.points[0].y - b.points[2].y));
+
+            nodepts[nodename] = res;
+            nb2[nodename] = res;
+        })
+        $('.cluster.other polygon').not('multiple').map(function(a:any,b:any){
+          let nodename = $(this)?.parent()?.parent()?.attr('id')?.substr(2) || '';
+            let res:{[key: string]: number | string} = {};
+            res['x'] = Math.min(b.points[0].x,b.points[1].x,b.points[2].x);
+            res['y'] = Math.min(b.points[0].y,b.points[1].y,b.points[2].y);
+            res['width'] = Math.max(Math.abs(b.points[0].x - b.points[1].x), Math.abs(b.points[0].x - b.points[2].x));
+            res['height'] = Math.max(Math.abs(b.points[0].y - b.points[1].y), Math.abs(b.points[0].y - b.points[2].y));
+            nb2[nodename] = res;
+            onlynb2[nodename] = res;
+        })
+        $('.cluster.nb1 polygon').not('multiple').map(function(a:any,b:any){
+          let nodename = $(this)?.parent()?.parent()?.attr('id')?.substr(2) || '';
+            let res:{[key: string]: number | string} = {};
+            res['x'] = Math.min(b.points[0].x,b.points[1].x,b.points[2].x);
+            res['y'] = Math.min(b.points[0].y,b.points[1].y,b.points[2].y);
+            res['width'] = Math.max(Math.abs(b.points[0].x - b.points[1].x), Math.abs(b.points[0].x - b.points[2].x));
+            res['height'] = Math.max(Math.abs(b.points[0].y - b.points[1].y), Math.abs(b.points[0].y - b.points[2].y));
+            nodepts[nodename] = res;
+            onlynb1[nodename] = res;
+        })
+    }
+
+
+
+
+    $('g .node polygon').map(function(a:any,b:any)
+    {
+        let nodename = $(this)?.parent()?.parent()?.attr('id')?.substr(2) || '';
+        let res:{[key: string]: number | string} = {};
+        res['x'] = Math.min(b.points[0].x,b.points[1].x,b.points[2].x);
+        res['y'] = Math.min(b.points[0].y,b.points[1].y,b.points[2].y);
+        res['width'] = Math.max(Math.abs(b.points[0].x - b.points[1].x), Math.abs(b.points[0].x - b.points[2].x));
+        res['height'] = Math.max(Math.abs(b.points[0].y - b.points[1].y), Math.abs(b.points[0].y - b.points[2].y));
+        if (that.nb1graph.includes(nodename))
+        {
+            nodepts[nodename] = res;
+            if (that.nb2graph.includes(nodename)){
+                nb2[nodename] = res;
+            }
+            else{
+                onlynb1[nodename] = res;
+            }
+        }
+        else {
+            nb2[nodename] = res;
+            onlynb2[nodename] = res;
+        }
+    });
+
+
+    // $('g .node polygon').map(function(a,b)
+    // {
+    //     res = {}
+    //     res['x'] = b.points[0].x;
+    //     res['y'] = b.points[0].y;
+    //     res['width'] = Math.max(Math.abs(b.points[0].x-b.points[1].x),Math.abs(b.points[0].x-b.points[2].x));
+    //     res['height'] = Math.max(Math.abs(b.points[0].y-b.points[1].y),Math.abs(b.points[0].y-b.points[2].y));
+    //     nodepts[$(this).parent().parent().attr('id')] = res;
+    // });
+
+
+    var nb = Object.keys(nodepts).map(function(a,b){return nodepts[a]},{});
+    console.log(nb);
+    var othernb = Object.keys(nb2).map(function(a,b){return nb2[a]},{});
+    console.log(othernb);
+    var onlynb1flat = Object.keys(onlynb1).map(function(a,b){return onlynb1[a]});
+    var onlynb2flat = Object.keys(onlynb2).map(function(a,b){return onlynb2[a]});
+
+    var list = this.bubbles.createOutline(
+        BubbleSet.addPadding(nb, pad),
+        BubbleSet.addPadding(onlynb2flat, pad),
+        null /* lines */
+    );
+
+    var outline = new PointPath(list).transform([
+      new ShapeSimplifier(0.0),
+      new BSplineShapeGenerator(),
+      new ShapeSimplifier(0.0),
+    ]);
+
+    document.getElementById("nb2graph")?.setAttribute("d", outline.toString());
+
+    var list = this.bubbles.createOutline(
+        BubbleSet.addPadding(othernb, pad),
+        BubbleSet.addPadding(onlynb1flat, pad),
+        null /* lines */
+    );
+
+    var outline = new PointPath(list).transform([
+      new ShapeSimplifier(0.0),
+      new BSplineShapeGenerator(),
+      new ShapeSimplifier(0.0),
+    ]);
+
+    document.getElementById("nb1graph")?.setAttribute("d", outline.toString());
+  }
+
+  createPathMultiple = function(){
+    //FIXME: Get num notebooks
+    var nbnum = 4;
+    
+    var nodes = [...Array(nbnum)].map(x => Array());
+    var notnodes = [...Array(nbnum)].map(x => Array());
+    
+    $('g .node polygon').map(function(a:any,b:any)
+            {
+            let node = $(this)?.parent()?.parent();
+            //let nodename = node.attr('id').substr(2);
+            let res:{[key: string]: number | string} = {};
+            res['x'] = Math.min(b.points[0].x,b.points[1].x,b.points[2].x);
+            res['y'] = Math.min(b.points[0].y,b.points[1].y,b.points[2].y);
+            res['width'] = Math.max(Math.abs(b.points[0].x - b.points[1].x), Math.abs(b.points[0].x - b.points[2].x));
+            res['height'] = Math.max(Math.abs(b.points[0].y - b.points[1].y), Math.abs(b.points[0].y - b.points[2].y));
+            [...Array(nbnum).keys()].map(function(a:any,b:any,c:any){
+    
+                console.log(node.parent());
+                if(node.parent().hasClass('nb-'+a)){
+                    nodes[a].push(res);
+                }
+                else{
+                    notnodes[a].push(res);
+                }
+            });
+        });
+    
+    console.log(nodes);
+    console.log(notnodes);
+    
+    [...Array(nbnum).keys()].map(function(a,b,c){
+    
+    
+        var list = this.bubbles.createOutline(
+            BubbleSet.addPadding(nodes[a], pad),
+            BubbleSet.addPadding(notnodes[a], pad),
+            null /* lines */
+        );
+    
+        var outline = new PointPath(list).transform([
+          new ShapeSimplifier(0.0),
+          new BSplineShapeGenerator(),
+          new ShapeSimplifier(0.0),
+        ]);
+        console.log(outline.toString());
+        document.getElementById("nb"+a+"graph")?.setAttribute("d", outline.toString());
+    });
+    
+    
+    //    var nb = Object.keys(nodepts).map(function(a,b){return nodepts[a]},{});
+    //    console.log(nb);
+    //    var othernb = Object.keys(nb2).map(function(a,b){return nb2[a]},{});
+    //    console.log(othernb);
+    //    var onlynb1flat = Object.keys(onlynb1).map(function(a,b){return onlynb1[a]});
+    //    var onlynb2flat = Object.keys(onlynb2).map(function(a,b){return onlynb2[a]});
+    
+    //    var list = bubbles.createOutline(
+    //        BubbleSet.addPadding(othernb, pad),
+    //        BubbleSet.addPadding(onlynb1flat, pad),
+    //        null /* lines */
+    //    );
+    //
+    //    var outline = new PointPath(list).transform([
+    //      new ShapeSimplifier(0.0),
+    //      new BSplineShapeGenerator(),
+    //      new ShapeSimplifier(0.0),
+    //    ]);
+    //
+    //    document.getElementById("nb1graph").setAttribute("d", outline.toString());
+    
+    
+    }
+
+
+  //   dirPaths = function(){
+  //     var colors = d3.scaleOrdinal(d3.schemeCategory10);
+  
+  //     for(var i = 0; i < num_nbs; i++){
+  
+  //         d3.select('svg g').append("path").attr('id','nb-'+str(i)+'graph').attr('fill',colors(i)).attr('opacity','.5').attr('stroke','black');
+  //         var class_label = 'nb-'+str(i);
+  //         $('.'+class_label+ '.cluster polygon').map(function(a,b){
+  
+  //         })
+  //         $('.cluster polygon').not($('.'+class_label)).map(function(a,b){
+  
+  //         })
+  //     }
+  // }
+
+  htmlEntities = function(str:any) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+clearinfo = function(){
+  $('#images').empty();
+  $('svg').empty();
+  $('#results').empty();
+  $('#code').empty();
+  $('#version').text('');
+  $('#language').text('');
+}
+
+// doBubbles = function(rects, others, elem) {
+//   var rectSets = getRectangleSets(rects, others);
+//   var list = this.bubbles.createOutline(
+//     BubbleSet.addPadding(rectSets[0], pad),
+//     BubbleSet.addPadding(rectSets[1], pad),
+//     getEdges(rects)
+//   );
+//   var outline = new PointPath(list).transform([
+//     new ShapeSimplifier(0.0),
+//     new BSplineShapeGenerator(),
+//     new ShapeSimplifier(0.0),
+//   ]);
+//   elem.setAttribute("d", outline.toString());
+// }
+
+ixToRectangle = function(ix:any) {
+  return {
+    "x": this.nodes[ix][0] - size * 0.5,
+    "y": this.nodes[ix][1] - size * 0.5,
+    "width": size,
+    "height": size,
+  };
+}
+
+ixsToEdge = function(edge:any) {
+  return {
+    "x1": this.nodes[edge[0]][0],
+    "y1": this.nodes[edge[0]][1],
+    "x2": this.nodes[edge[1]][0],
+    "y2": this.nodes[edge[1]][1],
+  };
+}
 
   /** @method starts graph creation **/
   startGraphCreation = function () {

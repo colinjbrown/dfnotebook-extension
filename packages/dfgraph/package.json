@@ -163,6 +163,7 @@
     "@types/jquery": "^3.5.14",
     "@types/node": "^17.0.22",
     "@types/resize-observer-browser": "^0.1.7",
+    "bubblesets": "^1.0.2",
     "codemirror": "^5.55.0",
     "d3": "^7.8.5",
     "d3-graphviz": "^5.2.0",
