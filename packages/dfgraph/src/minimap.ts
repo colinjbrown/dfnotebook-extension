@@ -42,6 +42,7 @@ export class Minimap {
   toggle: any;
   tabular: any;
   colormap: any;
+  versionselect: any;
 
   constructor(dfgraph?: any, parentdiv?: any) {
     this.wasCreated = false;
@@ -169,6 +170,7 @@ export class Minimap {
     let that = this;
     let ups: any = [];
     let downs: any = [];
+    if(typeof node == 'undefined' || node == null) { return; }
     if (!node.classed('active_node')) {
       this.reset();
       node.classed('active_node', true);
@@ -783,6 +785,17 @@ export class Minimap {
     return true;
   };
 
+  updateVersions = function() {
+    this.versionselect
+        .selectAll("option")
+        .data(this.dfgraph.getVersions())
+        .enter()
+        .append('option')
+        .text((d:any) => d[1])
+        .attr('versionnum',(d:any) => d[0]);
+
+  }
+
   /** @method creates the starting environment for first time setup*/
   createMiniArea = function () {
     (async () => {
@@ -819,10 +832,24 @@ export class Minimap {
         .attr('type', 'button')
         .on('click', function () {
           that.dfgraph.moveVersion(true);
-        }).on('click', function () {
-          that.dfgraph.moveVersion(true);
         });
+        
       versionselectup.append('span').text('>').classed('button', true).classed('round', true);
+      
+      this.versionselect = this.tabular.append('select').on('change',function() {
+        console.log(that.versionselect.node().selectedOptions[0].getAttribute('versionnum'));
+        console.log(that.versionselect.node().selectedOptions[0].getAttribute('versionnum'));
+        that.dfgraph.changeVersion(parseInt(that.versionselect.node().selectedOptions[0].getAttribute('versionnum')));
+      });
+      that.versionselect
+        .selectAll("option")
+        .data(that.dfgraph.getVersions())
+        .enter()
+        .append('option')
+        .text((d:any) => d[1])
+        .attr('versionnum',(d:any) => d[0]);
+  
+
       let label = this.tabular.append('label').classed('switch', true);
       label
         .append('input')

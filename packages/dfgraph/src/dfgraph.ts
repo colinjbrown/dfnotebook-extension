@@ -2,6 +2,23 @@ import { DepView } from './depview';
 import { Minimap } from './minimap';
 // @ts-ignore
 import * as Hashes from 'jshashes';
+// import {
+//   //DataflowCell as Cell,
+//   DataflowCodeCell as CodeCell,
+//   DataflowMarkdownCell as MarkdownCell,
+//   //DataflowInputArea as InputArea,
+//   //DataflowInputPrompt as InputPrompt,
+//   DataflowRawCell as RawCell
+// } from '@dfnotebook/dfcells';
+
+// import {
+//   CodeCellModel,
+//   MarkdownCellModel,
+//   RawCellModel
+// } from '@jupyterlab/cells';
+
+import * as nbformat from '@jupyterlab/nbformat';
+
 
 //UUID length has been changed need to compensate for that
 const uuidLength = 8;
@@ -77,6 +94,7 @@ class GraphManager {
     //             console.log("Update dep viewer here");
     //         }
     if (this.miniWidget.isOpen) {
+      this.minimap.updateVersions();
       this.minimap.updateActiveByID(activeid);
     }
   };
@@ -216,6 +234,8 @@ export class Graph {
   cellsHistory: any;
   upstreamListHistory: any;
   rawCellsHistory: any;
+  rawCellsHistoryAlternative: any;
+  updateTimes: any;
   // executedHistory: any;
 
   /*
@@ -253,6 +273,7 @@ export class Graph {
     this.downlinksHistory = {};
     this.upstreamListHistory = {};
     this.rawCellsHistory = [];
+    this.rawCellsHistoryAlternative = [];
     this.currVer = {};
     this.verIdx = 0;
     this.nodes = nodes || [];
@@ -263,6 +284,7 @@ export class Graph {
     this.cellOrder = [];
     this.historySequence = [];
     this.sequence = {};
+    this.updateTimes = [];
     
 
     //Cache downstream lists
@@ -443,21 +465,37 @@ export class Graph {
     this.historySequence.push(this.sequence);
     this.verIdx = this.historySequence.length - 1;
     this.sequence = {};
-    //let rawCells = that.graphManager.tracker.currentWidget.content.cellsArray.map((cell) => cell.node);
+    
+    let rawCells = that.graphManager.tracker.currentWidget.content.cellsArray.map((cell: any) => ({
+      'id': cell.model.id,
+      'source': cell.inputArea.model.sharedModel.source || '',
+      'outputs': cell.outputArea.model.toJSON() || [],
+      'type': cell.model.type
+  }));
+
+//   let rawCells = that.graphManager.tracker.currentWidget.content.cellsArray.map((cell: any) => (
+//     cell.clone()
+// ));
+
+    console.log(that.graphManager.tracker.currentWidget.content.cellsArray);
+    console.log(rawCells);
+    //this.rawCellsHistory.push()
     //let rawSha = that.calculateSha(rawCells);
     //that.currVer['rawcells'] = rawSha;
 //    this.rawCellsHistory.push(structuredClone(this.graphManager.tracker.currentWidget.content.cellsArray));//.map((cell:any) => cell.node));
-    
+    this.rawCellsHistoryAlternative.push(rawCells);
     this.rawCellsHistory.push(this.panel.node.childNodes[1].childNodes[0].children[0].cloneNode(true));
+    this.updateTimes.push(Date.now());
     this.logHistories();
   }
 
   moveVersion = function(up:Boolean){
     console.log("Moving Version");
-    if(up && this.verIdx < (this.historySequence.length-1)){
+    console.log(this.historySequence.length, this.verIdx);
+    if(!up && this.verIdx < (this.historySequence.length-1)){
       this.changeVersion(this.verIdx+1);
     }
-    else if(this.verIdx >= 1){
+    else if(up && this.verIdx >= 1){
       this.changeVersion(this.verIdx-1);
     }
 
@@ -476,19 +514,137 @@ export class Graph {
     this.cells = this.cellsHistory[hist['cells']];
     this.nodes = this.nodesHistory[hist['nodes']];
     this.cellContents = this.cellContentsHistory[hist['content']];
-    console.log(this.graphManager.tracker);
+    
+    //console.log(this.graphManager.tracker);
+    
     //this.panel.widgets = this.rawCellsHistory[history-1];
-    console.log(document.getElementsByClassName('jp-WindowedPanel-viewport'));
-    console.log(this.rawCellsHistory[history-1]);
-    console.log(this.rawCellsHistory);
-    let viewport = document.getElementsByClassName('jp-WindowedPanel-viewport')[0];
-    viewport.replaceChildren('');
-    viewport.innerHTML = this.rawCellsHistory[history-1].innerHTML;
+    
+    //console.log(document.getElementsByClassName('jp-WindowedPanel-viewport'));
+    //console.log(this.rawCellsHistory[history-1]);
+    //console.log(this.rawCellsHistory);
+    //let viewport = document.getElementsByClassName('jp-WindowedPanel-viewport')[0];
+    //viewport.replaceChildren('');
+    //viewport.innerHTML = this.rawCellsHistory[history-1].innerHTML;
+    
+    
     // for (let i = 0; i < this.rawCellsHistory[history-1].children.length; i++){
     //   let ele = this.rawCellsHistory[history-1].children.item(i).cloneNode();
     //   viewport.appendChild(ele);
     // }
 //    this.rawCellsHistory[history-1].children.map((node:any) => viewport.appendChild(node));
+    
+
+
+  console.log(this.graphManager.tracker);
+  let nbPanel =  this.graphManager.tracker.currentWidget.content;
+
+  console.log(nbPanel);
+  
+  nbPanel.model.sharedModel.transact(() => {
+    nbPanel.model.sharedModel.deleteCellRange(0,nbPanel.model.sharedModel.cells.length);
+  });
+
+
+  // nbPanel.cellsArray.forEach((cell:any, idx:number) => {
+  //   nbPanel.model.sharedModel.transact(() => {
+  //     nbPanel.model.sharedModel.clear();
+  //     nbPanel.model.sharedModel.deleteCell(idx);
+  //   });
+  //   //console.log(cell);
+  //   //nbPanel.cellsArray.pop();
+  //   //cell.dispose();
+  //   //nbPanel.widgets.pop();
+  // });
+
+  //nbPanel.cellsArray = [];
+
+  console.log(history);
+  console.log(this.rawCellsHistoryAlternative[history]);
+  console.log(nbPanel.widgets);
+
+ let cells = this.rawCellsHistoryAlternative[history].map(function(cell:any){
+    //let newCell = '';
+    console.log(cell);
+    // let newCell = new CodeCellModel({'id':cell.id});
+    // cell.outputs.forEach((output:any) => {newCell.outputs.add(output)});  
+    // newCell.sharedModel.source = cell.source; //inputArea.model.sharedModel.source
+    // let widget = nbPanel.contentFactory.createCodeCell({model: newCell, contentFactory: nbPanel.contentFactory, rendermime:nbPanel.rendermime});
+      
+      
+      //let widget = new CodeCell({model: newCell, contentFactory: nbPanel.contentFactory, rendermime:nbPanel.rendermime});
+      //nbPanel.widgets._insertCell(1,widget);//_insertCell(0,widget);
+      //nbPanel.cellsArray.push(widget);
+    if(cell.type == 'code'){
+      return {cell_type:'code',source:cell.source,id:cell.id,outputs:cell.outputs}
+      
+      // let newCell = new CodeCellModel({'id':cell.id});
+      // cell.outputs.forEach((output:any) => {newCell.outputs.add(output)});  
+      // newCell.sharedModel.source = cell.source; //inputArea.model.sharedModel.source
+      // let widget = nbPanel.contentFactory.createCodeCell({model: newCell, contentFactory: nbPanel.contentFactory, rendermime:nbPanel.rendermime});
+      
+      
+      //nbPanel.cellsArray.push(widget);
+      //return widget;
+      
+      
+      // let newCell = new CodeCellModel({'id':cell.id});
+      // newCell.sharedModel.source = cell.source; //inputArea.model.sharedModel.source
+      // let widget = nbPanel._createCodeCell(newCell);
+      // //let widget = new CodeCell({model: newCell, contentFactory: nbPanel.contentFactory, rendermime:nbPanel.rendermime});
+      // nbPanel._insertCell(0,widget);
+    }
+    else if(cell.type == 'markdown'){
+      return {cell_type:'markdown',source:cell.source,id:cell.id,outputs:cell.outputs}
+
+
+
+      // let newCell = new MarkdownCellModel({'id':cell.id});
+      // newCell.sharedModel.source = cell.source; //.inputArea.model.sharedModel
+      // //let widget = nbPanel._createMarkdownCell(newCell);
+      // let widget = nbPanel.contentFactory.createMarkdownCell({model: newCell, contentFactory: nbPanel.contentFactory,rendermime:nbPanel.rendermime});
+      // //nbPanel.cellsArray.push(widget);
+      // return widget;
+    }
+    else{
+      return {cell_type:'raw',source:cell.source,id:cell.id,outputs:cell.outputs}
+      
+      
+      
+      
+      // let newCell = new RawCellModel({'id':cell.id});
+      // newCell.sharedModel.source = cell.source; //inputArea.model.sharedModel.
+      // let widget = nbPanel.contentFactory.createRawCell({model: newCell, contentFactory: nbPanel.contentFactory,rendermime:nbPanel.rendermime});
+      // //let widget = new RawCell({model: newCell, contentFactory: nbPanel.contentFactory});
+      // //nbPanel.cellsArray.push(widget);
+      // return widget;
+    }
+    
+  }) as nbformat.IBaseCell[];
+
+  console.log(cells);
+
+  // this.rawCellsHistoryAlternative[history-1].forEach((cell:any) => {
+  //   nbPanel.widgets.push(cell.clone());
+  // });
+
+  // nbPanel.cellsArray.forEach((cell:any) => {
+  //   cell.update();
+  // });
+
+  nbPanel.model.sharedModel.transact(()=> {
+    nbPanel.model.sharedModel.insertCells(0,cells);
+    });
+
+  //   );
+  // });
+
+    //this.graphManager.tracker.currentWidget.content.cellsArray = this.rawCellsHistoryAlternative[history-1];
+    console.log(this.graphManager.tracker.currentWidget.content.widgets);
+    console.log(this.graphManager.tracker.currentWidget);
+    //this.graphManager.tracker.currentWidget.content.reveal();
+    
+    //this.graphManager.tracker.currentWidget.content.cellsArray.forEach((cell:any) => cell.update());
+    
     //document.getElementsByClassName('jp-WindowedPanel-viewport')[0].replaceChildren(this.rawCellsHistory[history-1]);
     //this.panel.node.childNodes[1].childNodes[0].children[0].children = this.rawCellsHistory[history-1];
     //this.graphManager.tracker.currentWidget.content.cellsArray = this.rawCellsHistory[history-1];
@@ -713,6 +869,12 @@ export class Graph {
     }
     return arr;
   }
+
+  getVersions = function(){
+    let that = this;
+    return (this.rawCellsHistoryAlternative).map(function(e:any,i:number){ return [i, that.updateTimes[i]];}).reverse();
+  }
+
 
   /** @method returns downstreams for a cell with a given uuid */
   getDownstreams(uuid: string | number) {

@@ -435,7 +435,7 @@ const GraphManagerPlugin: JupyterFrontEndPlugin<void> = {
             nbPanel.content.activeCellChanged.connect(() =>{
                 let prevActive = GraphManager.getActive();
                 if(typeof prevActive == 'object'){
-                    let uuid = prevActive.id.replace(/-/g, '').substr(0, 8);
+                    let uuid = prevActive.id?.replace(/-/g, '').substr(0, 8) || 'None';
                     if(prevActive.sharedModel.source != GraphManager.getText(uuid)){
                         GraphManager.markStale(uuid);
                     }
@@ -445,6 +445,7 @@ const GraphManagerPlugin: JupyterFrontEndPlugin<void> = {
                 }
                 //Have to get this off the model the same way that actions.tsx does
                 let activeId = nbPanel.content.activeCell?.model?.id.replace(/-/g, '').substr(0, 8);
+
                 GraphManager.updateActive(activeId,nbPanel.content.activeCell?.model);
             });
       });
@@ -475,7 +476,7 @@ const GraphManagerPlugin: JupyterFrontEndPlugin<void> = {
                   const button = new ToolbarButton({
                       className: 'history:back',
                       label: '>',
-                      onClick: moveVUp,
+                      onClick: moveVDown,
                       tooltip: 'Moves back a version',
                   });
                   nbPanel.toolbar.insertItem(10, '>', button);
@@ -483,13 +484,15 @@ const GraphManagerPlugin: JupyterFrontEndPlugin<void> = {
                   const button2 = new ToolbarButton({
                     className: 'history:forward',
                     label: '<',
-                    onClick: moveVDown,
+                    onClick: moveVUp,
                     tooltip: 'Moves forward a version',
                 });
                 nbPanel.toolbar.insertItem(10, '<', button2);
               }
             });
          });
+
+         
 
         // // Add an application command
         // const command: string = 'history:back';
