@@ -1699,6 +1699,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@dagrejs/dagre@npm:1.1.4":
+  version: 1.1.4
+  resolution: "@dagrejs/dagre@npm:1.1.4"
+  dependencies:
+    "@dagrejs/graphlib": 2.2.4
+  checksum: 39d29a0ea34d1782fee012a87b0395e1959d81f2f8c9cdf4b236e2b703f88524ae2de3d7c4eccce85758c8d26966e1ee147d1075201af059443f6da967e5bfd2
+  languageName: node
+  linkType: hard
+
+"@dagrejs/graphlib@npm:2.2.4":
+  version: 2.2.4
+  resolution: "@dagrejs/graphlib@npm:2.2.4"
+  checksum: 02d2d8df07fd6234bfc82f03f0aebd718f1ffc2ba6579ef67a26e423d9ad25a437256d3342e6342e29ae8a5c5e448a07440d6e218c6e77e390bc57ee73b43d2d
+  languageName: node
+  linkType: hard
+
 "@dfnotebook/dfcells@>0.4.0-a, @dfnotebook/dfcells@workspace:packages/dfcells":
   version: 0.0.0-use.local
   resolution: "@dfnotebook/dfcells@workspace:packages/dfcells"
@@ -1769,6 +1785,7 @@ __metadata:
   dependencies:
     "@babel/core": ^7
     "@babel/preset-env": ^7
+    "@dagrejs/dagre": 1.1.4
     "@hpcc-js/wasm": ^2.15.3
     "@jupyterlab/builder": ^4.2.1
     "@jupyterlab/testing": ^4.2.1
@@ -1788,6 +1805,7 @@ __metadata:
     "@types/resize-observer-browser": ^0.1.7
     "@typescript-eslint/eslint-plugin": ^6.1.0
     "@typescript-eslint/parser": ^6.1.0
+    "@xyflow/react": 12.3.5
     codemirror: ^5.55.0
     css-loader: ^6.7.1
     d3: ^7.8.5
@@ -1804,6 +1822,7 @@ __metadata:
     npm-run-all: ^4.1.5
     prettier: ^3.0.0
     react: ^18.2.0
+    react-dom: 18.3.1
     rimraf: ^5.0.1
     source-map-loader: ^1.0.2
     style-loader: ^3.3.1
@@ -4574,7 +4593,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/d3-drag@npm:*":
+"@types/d3-drag@npm:*, @types/d3-drag@npm:^3.0.7":
   version: 3.0.7
   resolution: "@types/d3-drag@npm:3.0.7"
   dependencies:
@@ -4723,6 +4742,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/d3-selection@npm:^3.0.10":
+  version: 3.0.11
+  resolution: "@types/d3-selection@npm:3.0.11"
+  checksum: 4b76630f76dffdafc73cdc786d73e7b4c96f40546483074b3da0e7fe83fd7f5ed9bc6c50f79bcef83595f943dcc9ed6986953350f39371047af644cc39c41b43
+  languageName: node
+  linkType: hard
+
 "@types/d3-shape@npm:*":
   version: 3.1.6
   resolution: "@types/d3-shape@npm:3.1.6"
@@ -4771,7 +4797,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/d3-zoom@npm:*":
+"@types/d3-transition@npm:^3.0.8":
+  version: 3.0.9
+  resolution: "@types/d3-transition@npm:3.0.9"
+  dependencies:
+    "@types/d3-selection": "*"
+  checksum: c8608b1ac7cf09acfe387f3d41074631adcdfd7f2c8ca2efb378309adf0e9fc8469dbcf0d7a8c40fd1f03f2d2bf05fcda0cde7aa356ae8533a141dcab4dff221
+  languageName: node
+  linkType: hard
+
+"@types/d3-zoom@npm:*, @types/d3-zoom@npm:^3.0.8":
   version: 3.0.8
   resolution: "@types/d3-zoom@npm:3.0.8"
   dependencies:
@@ -5721,6 +5756,35 @@ __metadata:
   version: 4.2.2
   resolution: "@xtuc/long@npm:4.2.2"
   checksum: 8ed0d477ce3bc9c6fe2bf6a6a2cc316bb9c4127c5a7827bae947fa8ec34c7092395c5a283cc300c05b5fa01cbbfa1f938f410a7bf75db7c7846fea41949989ec
+  languageName: node
+  linkType: hard
+
+"@xyflow/react@npm:12.3.5":
+  version: 12.3.5
+  resolution: "@xyflow/react@npm:12.3.5"
+  dependencies:
+    "@xyflow/system": 0.0.46
+    classcat: ^5.0.3
+    zustand: ^4.4.0
+  peerDependencies:
+    react: ">=17"
+    react-dom: ">=17"
+  checksum: eae3bf12a63842d7ae4abccbfd94209a98f4562440ee0d52c4c021c3fb8cd5e425c33d0da08faad7b1991629a528c100cc9d82b13c30635b7d2279497e3f2d2a
+  languageName: node
+  linkType: hard
+
+"@xyflow/system@npm:0.0.46":
+  version: 0.0.46
+  resolution: "@xyflow/system@npm:0.0.46"
+  dependencies:
+    "@types/d3-drag": ^3.0.7
+    "@types/d3-selection": ^3.0.10
+    "@types/d3-transition": ^3.0.8
+    "@types/d3-zoom": ^3.0.8
+    d3-drag: ^3.0.0
+    d3-selection: ^3.0.0
+    d3-zoom: ^3.0.0
+  checksum: b115d02b3576d49254d4122ae484999978f7db483c73be82c1d42801da828bccd097fd739e701da648d538475745f75c5023bfed6bca1391f04b0f323b9f886d
   languageName: node
   linkType: hard
 
@@ -6866,6 +6930,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"classcat@npm:^5.0.3":
+  version: 5.0.5
+  resolution: "classcat@npm:5.0.5"
+  checksum: 19bdeb99b8923b47f9df978b6ef2c5a4cc3bcaa8fb6be16244e31fad619b291b366429747331903ac2ea27560ffd6066d14089a99c95535ce0f1e897525fa63d
+  languageName: node
+  linkType: hard
+
 "clean-stack@npm:^2.0.0":
   version: 2.2.0
   resolution: "clean-stack@npm:2.2.0"
@@ -7600,7 +7671,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"d3-drag@npm:2 - 3, d3-drag@npm:3":
+"d3-drag@npm:2 - 3, d3-drag@npm:3, d3-drag@npm:^3.0.0":
   version: 3.0.0
   resolution: "d3-drag@npm:3.0.0"
   dependencies:
@@ -7759,7 +7830,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"d3-selection@npm:2 - 3, d3-selection@npm:3":
+"d3-selection@npm:2 - 3, d3-selection@npm:3, d3-selection@npm:^3.0.0":
   version: 3.0.0
   resolution: "d3-selection@npm:3.0.0"
   checksum: f4e60e133309115b99f5b36a79ae0a19d71ee6e2d5e3c7216ef3e75ebd2cb1e778c2ed2fa4c01bef35e0dcbd96c5428f5bd6ca2184fe2957ed582fde6841cbc5
@@ -14195,7 +14266,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-dom@npm:^18.2.0":
+"react-dom@npm:18.3.1, react-dom@npm:^18.2.0":
   version: 18.3.1
   resolution: "react-dom@npm:18.3.1"
   dependencies:
@@ -16636,6 +16707,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"use-sync-external-store@npm:1.2.2":
+  version: 1.2.2
+  resolution: "use-sync-external-store@npm:1.2.2"
+  peerDependencies:
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0
+  checksum: fe07c071c4da3645f112c38c0e57beb479a8838616ff4e92598256ecce527f2888c08febc7f9b2f0ce2f0e18540ba3cde41eb2035e4fafcb4f52955037098a81
+  languageName: node
+  linkType: hard
+
 "util-deprecate@npm:^1.0.1, util-deprecate@npm:^1.0.2, util-deprecate@npm:~1.0.1":
   version: 1.0.2
   resolution: "util-deprecate@npm:1.0.2"
@@ -17487,5 +17567,25 @@ __metadata:
     property-expr: ^2.0.4
     toposort: ^2.0.2
   checksum: 43a16786b47cc910fed4891cebdd89df6d6e31702e9462e8f969c73eac88551ce750732608012201ea6b93802c8847cb0aa27b5d57370640f4ecf30f9f97d4b0
+  languageName: node
+  linkType: hard
+
+"zustand@npm:^4.4.0":
+  version: 4.5.5
+  resolution: "zustand@npm:4.5.5"
+  dependencies:
+    use-sync-external-store: 1.2.2
+  peerDependencies:
+    "@types/react": ">=16.8"
+    immer: ">=9.0.6"
+    react: ">=16.8"
+  peerDependenciesMeta:
+    "@types/react":
+      optional: true
+    immer:
+      optional: true
+    react:
+      optional: true
+  checksum: 654e47959970bc66bbf2ae80fced7e556dd488e9ee54eb678330cb036ecc7184f4b8c2cae273be28022533622c54ab6339bf3fe30d19236367c5c251b6c6679a
   languageName: node
   linkType: hard

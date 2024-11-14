@@ -3,10 +3,33 @@ import $ from 'jquery';
 import '@hpcc-js/wasm';
 import Writer from 'graphlib-dot';
 import { graphviz, GraphvizOptions } from 'd3-graphviz';
-import * as GraphLib from 'graphlib';
+//import * as GraphLib from 'graphlib';
+import React from 'react';
+import { useCallback } from 'react';
+import ReactDOM from 'react-dom/client';
+import {
+  ReactFlow,
+  MiniMap,
+  addEdge,
+  ConnectionLineType,
+  Panel,
+  useNodesState,
+  useEdgesState
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import dagre from '@dagrejs/dagre';
+
+//const position = { x: 0, y: 0 };
+const edgeType = 'smoothstep';
+
+const nodeWidth = 80;
+const nodeHeight = 36;
+
+
 
 //UUID length has been changed need to compensate for that
 const uuidLength = 8;
+
 
 const defaultOptions: GraphvizOptions = {
   height: 1600,
@@ -584,14 +607,15 @@ export class DepView {
     that.cellLinks.forEach(function (a: any) {
       that.cellChildNums[a.source] += 1;
     });
-    let g = new GraphLib.Graph({ compound: true })
-      .setGraph({
-        compound: true,
-        ranksep: 1,
-        nodesep: 0.03,
-        tooltip: ' ',
-        rankdir: 'LR'
-      })
+    //let g = new GraphLib.Graph({ compound: true })
+    let g = new dagre.graphlib.Graph({ compound: true })
+      // .setGraph({
+      //   compound: true,
+      //   ranksep: 1,
+      //   nodesep: 0.03,
+      //   tooltip: ' ',
+      //   rankdir: 'LR'
+      // })
       .setDefaultEdgeLabel(function () {
         return {};
       });
@@ -601,20 +625,26 @@ export class DepView {
         if (that.selected && a.level == 0) {
           g.setNode('cluster_Out[' + a.id + ']', {
             label: that.cellLabel + a.id,
-            id: 'selected',
-            clusterLabelPos: 'top',
-            class: 'parentnode cellid',
-            shape: 'box',
+            data: {'label': that.cellLabel + a.id},
+            //id: 'selected',
+            //clusterLabelPos: 'top',
+            //class: 'parentnode cellid',
+            width: nodeWidth*2,
+            height: nodeHeight*2,
+            //shape: 'box',
             margin: 5
           });
         } else {
           g.setNode('cluster_Out[' + a.id + ']', {
             label: that.cellLabel + a.id,
+            data: {'label': that.cellLabel + a.id},
             id: a.id + 'cluster',
             clusterLabelPos: 'top',
-            class: 'parentnode cellid',
-            tooltip: ' ',
-            shape: 'box',
+            //class: 'parentnode cellid',
+            //tooltip: ' ',
+            width: nodeWidth*2,
+            height: nodeHeight*2,
+            // shape: 'box',
             margin: 5
           });
         }
@@ -623,19 +653,23 @@ export class DepView {
 
     Object.keys(that.outputNodes).forEach(function (a: any) {
       let parent = 'cluster_Out[' + a + ']';
+      let parentid = a + 'cluster';
       if (that.dataflow || that.selected) {
         let cell = a + '-Cell';
         g.setNode(cell, {
           label: 'Cell[' + a + ']',
-          class: 'child-node prompt output_prompt cellid',
-          labelStyle: that.labelstyles,
-          style: 'invis',
-          peripheries: 0,
-          height: 0,
-          width: 0,
-          margin: '0,0',
-          tooltip: ' ',
-          shape: 'point',
+          //data: {'label': 'Cell[' + a + ']'},
+          //class: 'child-node prompt output_prompt cellid',
+          // labelStyle: that.labelstyles,
+          // style: 'invis',
+          // peripheries: 0,
+          height: 1,//nodeWidth,
+          width: 1,//nodeWidth,
+          // margin: '0,0',
+          // tooltip: ' ',
+          // shape: 'point',
+          parentId: parentid,
+          extent: 'parent',
           id: cell
         });
         g.setParent(cell, parent);
@@ -646,27 +680,32 @@ export class DepView {
         if (/cluster_Out\_[a-f0-9]{8}/.test(t)) {
           g.setNode(a + t, {
             label: parent,
-            class: 'child-node prompt output_prompt cellid',
-            labelStyle: that.labelstyles,
-            tooltip: ' ',
-            shape: 'box',
+            data: {'label': parent},
+            // class: 'child-node prompt output_prompt cellid',
+            // labelStyle: that.labelstyles,
+            // tooltip: ' ',
+            // shape: 'box',
             id: a + t,
-            width: 0.2,
-            height: 0.05,
-            margin: '0.1,0.01'
+            width: nodeWidth,
+            height: nodeHeight,
+            type: 'group',
+            //margin: '0.1,0.01'
           });
           g.setParent(a + t, parent);
         } else {
           g.setNode(a + t, {
             label: t,
-            class: 'child-node prompt output_prompt cellid',
-            labelStyle: that.labelstyles,
-            tooltip: ' ',
-            shape: 'box',
+            data: {'label': t},
+            // class: 'child-node prompt output_prompt cellid',
+            // labelStyle: that.labelstyles,
+            // tooltip: ' ',
+            // shape: 'box',
             id: a + t,
-            width: 0.2,
-            height: 0.05,
-            margin: '0.1,0.01'
+            width: nodeWidth,
+            height: nodeHeight,
+            parentId: parentid,
+            extent: 'parent',
+            //margin: '0.1,0.01'
           });
           g.setParent(a + t, parent);
         }
@@ -675,14 +714,19 @@ export class DepView {
 
     that.cellLinks.forEach(function (a: any) {
       if (g.hasNode(a.source) && g.hasNode(a.target)) {
-        g.setEdge(a.source, a.target, {
+        let target = a.target;
+        // if(a.target.includes('-Cell')){
+        //   target = a.target.substr(0,a.target.length-5)+'cluster';
+        // }
+        g.setEdge(a.source, target, {
           class:
             a.source.substr(0, uuidLength) +
             a.target.substr(0, uuidLength) +
             ' viz-' +
             a.source,
           id: 'viz-' + a.source + a.target,
-          lhead: 'cluster_Out[' + a.target.substr(0, uuidLength) + ']'
+          lhead: 'cluster_Out[' + a.target.substr(0, uuidLength) + ']',
+          type: edgeType
         });
       }
     });
@@ -691,16 +735,28 @@ export class DepView {
       console.log(that.cellList);
       console.log(that.outputNodes);
       console.log(that.cellLinks);
-      console.log(g.children());
+      //console.log(g.children());
       console.log(g.nodes());
       console.log(g.edges());
-      console.log(Writer.write(g));
+      //console.log(Writer.write(g));
     }
 
     return g;
   };
 
+  
+
   /** @method this opens and closes the depviewer **/
+  // toggleDepView = function () {
+  //   //let that = this;
+  //   function MyComponent() {
+  //     return <p>This is my React content</p>;
+  //   }
+  //   const ele = document.getElementById('depview')!;
+  //   //ele.innerHTML = '';
+  //   const root = ReactDOM.createRoot(ele);//.innerHTML = 
+  //   root.render(<MyComponent />);
+  // };
   toggleDepView = function () {
     let that = this;
     if (this.isOpen) {
@@ -735,8 +791,113 @@ export class DepView {
   /** @method starts graph creation **/
   startGraphCreation = function () {
     let that = this;
-    let g = this.createNodeRelations();
-    this.createGraph(g);
+    const dagreGraph = this.createNodeRelations();
+    //const dagreGraph = new dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+ 
+const getLayoutedElements = (direction:string = 'TB') => {
+  const isHorizontal = direction === 'LR';
+  dagreGraph.setGraph({ rankdir: direction });
+ 
+  // nodes.forEach((node:any) => {
+  //   dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+  // });
+ 
+  // edges.forEach((edge:any) => {
+  //   dagreGraph.setEdge(edge.source, edge.target);
+  // });
+ 
+  dagre.layout(dagreGraph);
+  console.log(dagreGraph);
+  
+  const newNodes = dagreGraph.nodes().filter((node:any) => (!node.includes('-Cell') && !(dagreGraph.node(node).label == ''))).map((node:any) => {
+    
+    const nodeWithPosition = dagreGraph.node(node);
+    console.log(nodeWithPosition);
+    //let ratio = node.includes('cluster') ? 1 : 2;
+    const newNode = {
+      ...nodeWithPosition,
+      targetPosition: isHorizontal ? 'left' : 'top',
+      sourcePosition: isHorizontal ? 'right' : 'bottom',
+      // We are shifting the dagre node position (anchor=center center) to the top left
+      // so it matches the React Flow node anchor point (top left).
+      position: {
+        x: nodeWithPosition.x - nodeWidth / 2,
+        y: nodeWithPosition.y - nodeHeight / 2,
+      },
+    };
+ 
+    return newNode;
+  });
+
+  const newEdges = dagreGraph.edges().map((edge:any)=>{
+    let edgetarget = edge['w'];
+    if(edgetarget.includes('-Cell')){
+      edgetarget = edgetarget.substring(0,edgetarget.length-5)+'cluster';
+    }
+    return {'id':'e'+edge['v']+edge['w'],'source':edge['v'],'target':edgetarget,'type':edgeType,'animated':true}
+  });
+ 
+  return { nodes: newNodes, edges:newEdges };
+};
+ 
+const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements();
+console.log(layoutedNodes,layoutedEdges); 
+
+const Flow = () => {
+  const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges);
+ 
+  const onConnect = useCallback(
+    (params:any) =>
+      setEdges((eds:any) =>
+        addEdge(
+          { ...params, type: ConnectionLineType.SmoothStep, animated: true },
+          eds,
+        ),
+      ),
+    [],
+  );
+  const onLayout = useCallback(
+    (direction:any) => {
+      const { nodes: layoutedNodes, edges: layoutedEdges } =
+        getLayoutedElements(direction);
+ 
+      setNodes([...layoutedNodes]);
+      setEdges([...layoutedEdges]);
+    },
+    [nodes, edges],
+  );
+ 
+  return (
+    <div style={{ height:800, width:"100%"}}>
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onConnect={onConnect}
+      connectionLineType={ConnectionLineType.SmoothStep}
+      fitView
+      
+    >
+
+    <MiniMap nodeStrokeWidth={3} zoomable pannable />
+      <Panel position="top-right">
+        <button onClick={() => onLayout('TB')}>vertical layout</button>
+        <button onClick={() => onLayout('LR')}>horizontal layout</button>
+      </Panel>
+    </ReactFlow>
+    </div>
+  );
+};
+
+    const ele = document.getElementById('depview')!;
+    //ele.innerHTML = '';
+    const root = ReactDOM.createRoot(ele);//.innerHTML = 
+    root.render(<Flow />);
+
+    //let g = this.createNodeRelations();
+    //this.createGraph(g);
     that.dfgraph.wasChanged = false;
   };
 
