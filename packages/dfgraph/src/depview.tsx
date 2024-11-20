@@ -19,9 +19,8 @@ import {
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 
-//const position = { x: 0, y: 0 };
-const edgeType = 'smoothstep';
 
+const edgeType = 'bezier';
 const nodeWidth = 80;
 const nodeHeight = 36;
 
@@ -629,8 +628,8 @@ export class DepView {
             //id: 'selected',
             //clusterLabelPos: 'top',
             //class: 'parentnode cellid',
-            width: nodeWidth*2,
-            height: nodeHeight*2,
+            width: nodeWidth,//*2,
+            height: nodeHeight,//*2,
             //shape: 'box',
             margin: 5
           });
@@ -812,8 +811,12 @@ const getLayoutedElements = (direction:string = 'TB') => {
   const newNodes = dagreGraph.nodes().filter((node:any) => (!node.includes('-Cell') && !(dagreGraph.node(node).label == ''))).map((node:any) => {
     
     const nodeWithPosition = dagreGraph.node(node);
+    
     console.log(nodeWithPosition);
-    //let ratio = node.includes('cluster') ? 1 : 2;
+    console.log(that.outputNodes);
+    console.log(node.substring(12,node.length-1));
+    let ratio = node.includes('cluster') ? that.outputNodes[node.substring(12,node.length-1)].length : 1;
+    let offset = node.includes('cluster') ? 20 : 0;
     const newNode = {
       ...nodeWithPosition,
       targetPosition: isHorizontal ? 'left' : 'top',
@@ -825,7 +828,8 @@ const getLayoutedElements = (direction:string = 'TB') => {
         y: nodeWithPosition.y - nodeHeight / 2,
       },
     };
- 
+    newNode['width'] = nodeWidth*ratio+offset;
+
     return newNode;
   });
 
@@ -851,7 +855,7 @@ const Flow = () => {
     (params:any) =>
       setEdges((eds:any) =>
         addEdge(
-          { ...params, type: ConnectionLineType.SmoothStep, animated: true },
+          { ...params, type: ConnectionLineType.Bezier, animated: true },
           eds,
         ),
       ),
@@ -876,7 +880,7 @@ const Flow = () => {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onConnect={onConnect}
-      connectionLineType={ConnectionLineType.SmoothStep}
+      connectionLineType={ConnectionLineType.Bezier}
       fitView
       
     >
