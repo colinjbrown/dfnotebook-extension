@@ -18,11 +18,15 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
+import DepNode from './DepNode';
 
 
-const edgeType = 'bezier';
+const edgeType = 'default';
 const nodeWidth = 80;
 const nodeHeight = 36;
+const nodeTypes = {
+    depNode: DepNode,
+};
 
 
 
@@ -808,14 +812,14 @@ const getLayoutedElements = (direction:string = 'TB') => {
   dagre.layout(dagreGraph);
   console.log(dagreGraph);
   
-  const newNodes = dagreGraph.nodes().filter((node:any) => (!node.includes('-Cell') && !(dagreGraph.node(node).label == ''))).map((node:any) => {
+  const newNodes = dagreGraph.nodes().filter((node:any) => (!node.includes('-Cell') && !(dagreGraph.node(node).label == '') && (node.includes('cluster')))).map((node:any) => {
     
     const nodeWithPosition = dagreGraph.node(node);
-    
+    const uuid = node.substring(12,node.length-1);
     console.log(nodeWithPosition);
     console.log(that.outputNodes);
     console.log(node.substring(12,node.length-1));
-    let ratio = node.includes('cluster') ? that.outputNodes[node.substring(12,node.length-1)].length : 1;
+    let ratio = node.includes('cluster') ? that.outputNodes[uuid].length : 1;
     let offset = node.includes('cluster') ? 20 : 0;
     const newNode = {
       ...nodeWithPosition,
@@ -828,6 +832,10 @@ const getLayoutedElements = (direction:string = 'TB') => {
         y: nodeWithPosition.y - nodeHeight / 2,
       },
     };
+    newNode.data['outputs'] = that.outputNodes[uuid].map((node:any) =>{
+      return {label:node, id:uuid+node};
+    });
+    newNode['type'] = 'depNode';
     newNode['width'] = nodeWidth*ratio+offset;
 
     return newNode;
@@ -838,7 +846,7 @@ const getLayoutedElements = (direction:string = 'TB') => {
     if(edgetarget.includes('-Cell')){
       edgetarget = edgetarget.substring(0,edgetarget.length-5)+'cluster';
     }
-    return {'id':'e'+edge['v']+edge['w'],'source':edge['v'],'target':edgetarget,'type':edgeType,'animated':true}
+    return {'id':'e'+edge['v']+edge['w'],'sourceHandle':edge['v'],'source':edge['v'].substring(0,8)+'cluster','target':edgetarget,'type':edgeType,'animated':true}
   });
  
   return { nodes: newNodes, edges:newEdges };
@@ -852,13 +860,17 @@ const Flow = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges);
  
   const onConnect = useCallback(
-    (params:any) =>
+    (params:any) => {
+
+    
       setEdges((eds:any) =>
         addEdge(
           { ...params, type: ConnectionLineType.Bezier, animated: true },
           eds,
         ),
-      ),
+      )
+    console.log(params);
+    },
     [],
   );
   const onLayout = useCallback(
@@ -876,6 +888,7 @@ const Flow = () => {
     <div style={{ height:800, width:"100%"}}>
     <ReactFlow
       nodes={nodes}
+      nodeTypes={nodeTypes}
       edges={edges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
